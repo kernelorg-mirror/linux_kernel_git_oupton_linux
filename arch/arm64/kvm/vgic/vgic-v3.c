@@ -9,6 +9,7 @@
 #include <kvm/arm_vgic.h>
 #include <asm/kvm_hyp.h>
 #include <asm/kvm_mmu.h>
+#include <asm/kvm_nested.h>
 #include <asm/kvm_asm.h>
 
 #include "vgic.h"
@@ -734,21 +735,50 @@ void vgic_v3_load(struct kvm_vcpu *vcpu)
 {
 	struct vgic_v3_cpu_if *cpu_if = &vcpu->arch.vgic_cpu.vgic_v3;
 
+	vcpu->arch.vgic_cpu.current_cpu_if = cpu_if;
+
+	/*
+	 * If the vgic is in nested state, populate the shadow state
+	 * from the guest's nested state. As vgic_v3_load_nested()
+	 * will only load LRs, let's deal with the rest of the state
+	 * here as if it was a non-nested state. Cunning.
+	 */
+	if (vgic_state_is_nested(vcpu)) {
+		vgic_v3_create_shadow_state(vcpu);
+		cpu_if = vcpu->arch.vgic_cpu.current_cpu_if;
+	}
+
 	kvm_call_hyp(__vgic_v3_restore_vmcr_aprs, cpu_if);
 
 	if (has_vhe())
 		__vgic_v3_activate_traps(cpu_if);
 
-	WARN_ON(vgic_v4_load(vcpu));
+	if (vgic_state_is_nested(vcpu))
+		vgic_v3_load_nested(vcpu);
+	else
+		WARN_ON(vgic_v4_load(vcpu));
 }
 
 void vgic_v3_put(struct kvm_vcpu *vcpu)
 {
-	struct vgic_v3_cpu_if *cpu_if = &vcpu->arch.vgic_cpu.vgic_v3;
+	struct vgic_v3_cpu_if *cpu_if = vcpu->arch.vgic_cpu.current_cpu_if;
 
 	kvm_call_hyp(__vgic_v3_save_vmcr_aprs, cpu_if);
+
+	/*
+	 * vgic_v4_put will do nothing if we were not resident. This
+	 * covers both the cases where we've blocked (we already have
+	 * done a vgic_v4_put) and when running a nested guest (the
+	 * vPE was never resident in order to generate a doorbell).
+	 */
 	WARN_ON(vgic_v4_put(vcpu));
 
 	if (has_vhe())
 		__vgic_v3_deactivate_traps(cpu_if);
+
+	if (vgic_state_is_nested(vcpu))
+		vgic_v3_put_nested(vcpu);
+
+	/* Default back to the non-nested state for sanity */
+	vcpu->arch.vgic_cpu.current_cpu_if = &vcpu->arch.vgic_cpu.vgic_v3;
 }
