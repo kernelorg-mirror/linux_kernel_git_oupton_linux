@@ -2769,6 +2769,142 @@ static const struct sys_reg_desc sys_reg_descs[] = {
 	EL2_REG(SP_EL2, NULL, reset_unknown, 0),
 };
 
+static bool handle_s1e01(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			 const struct sys_reg_desc *r)
+{
+	int sys_encoding = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
+
+	__kvm_at_s1e01(vcpu, sys_encoding, p->regval);
+
+	return true;
+}
+
+static bool handle_s1e2(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			const struct sys_reg_desc *r)
+{
+	int sys_encoding = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
+
+	__kvm_at_s1e2(vcpu, sys_encoding, p->regval);
+
+	return true;
+}
+
+static u64 setup_par_aborted(u32 esr)
+{
+	u64 par = 0;
+
+	/* S [9]: fault in the stage 2 translation */
+	par |= (1 << 9);
+	/* FST [6:1]: Fault status code  */
+	par |= (esr << 1);
+	/* F [0]: translation is aborted */
+	par |= SYS_PAR_EL1_F;
+
+	return par;
+}
+
+static u64 setup_par_completed(struct kvm_vcpu *vcpu, struct kvm_s2_trans *out)
+{
+	u64 par, vtcr_sh0;
+
+	/* F [0]: Translation is completed successfully */
+	par = 0;
+	/* ATTR [63:56] */
+	par |= out->upper_attr;
+	/* PA [47:12] */
+	par |= out->output & GENMASK_ULL(11, 0);
+	/* RES1 [11] */
+	par |= (1UL << 11);
+	/* SH [8:7]: Shareability attribute */
+	vtcr_sh0 = vcpu_read_sys_reg(vcpu, VTCR_EL2) & VTCR_EL2_SH0_MASK;
+	par |= (vtcr_sh0 >> VTCR_EL2_SH0_SHIFT) << 7;
+
+	return par;
+}
+
+static bool handle_s12(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+		       const struct sys_reg_desc *r, bool write)
+{
+	u64 par, va;
+	u32 esr, op;
+	phys_addr_t ipa;
+	struct kvm_s2_trans out;
+	int ret;
+
+	/* Do the stage-1 translation */
+	va = p->regval;
+	op = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
+	switch (op) {
+	case OP_AT_S12E1R:
+		op = OP_AT_S1E1R;
+		break;
+	case OP_AT_S12E1W:
+		op = OP_AT_S1E1W;
+		break;
+	case OP_AT_S12E0R:
+		op = OP_AT_S1E0R;
+		break;
+	case OP_AT_S12E0W:
+		op = OP_AT_S1E0W;
+		break;
+	default:
+		WARN_ON_ONCE(1);
+		return true;
+	}
+
+	__kvm_at_s1e01(vcpu, op, va);
+	par = vcpu_read_sys_reg(vcpu, PAR_EL1);
+	if (par & SYS_PAR_EL1_F) /* The stage-1 translation aborted */
+		return true;
+
+	/*
+	 * If we only have a single stage of translation (E2H=0 or
+	 * TGE=1), exit early. Same thing if {VM,DC}=={0,0}.
+	 */
+	if (!vcpu_el2_e2h_is_set(vcpu) || vcpu_el2_tge_is_set(vcpu) ||
+	    !(vcpu_read_sys_reg(vcpu, HCR_EL2) & (HCR_VM | HCR_DC)))
+		return true;
+
+	/* Do the stage-2 translation */
+	ipa = (par & GENMASK_ULL(47, 12)) | (va & GENMASK_ULL(11, 0));
+	out.esr = 0;
+	ret = kvm_walk_nested_s2(vcpu, ipa, &out);
+	if (ret < 0)
+		return false;
+
+	/* Check if the stage-2 PTW is aborted */
+	if (out.esr) {
+		esr = out.esr;
+		goto s2_trans_abort;
+	}
+
+	/* Check the access permission */
+	if ((!write && !out.readable) || (write && !out.writable)) {
+		esr = ESR_ELx_FSC_PERM;
+		esr |= out.level & 0x3;
+		goto s2_trans_abort;
+	}
+
+	vcpu_write_sys_reg(vcpu, setup_par_completed(vcpu, &out), PAR_EL1);
+	return true;
+
+s2_trans_abort:
+	vcpu_write_sys_reg(vcpu, setup_par_aborted(esr), PAR_EL1);
+	return true;
+}
+
+static bool handle_s12r(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			const struct sys_reg_desc *r)
+{
+	return handle_s12(vcpu, p, r, false);
+}
+
+static bool handle_s12w(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			const struct sys_reg_desc *r)
+{
+	return handle_s12(vcpu, p, r, true);
+}
+
 static bool kvm_supported_tlbi_s12_op(struct kvm_vcpu *vpcu, u32 instr)
 {
 	struct kvm *kvm = vpcu->kvm;
@@ -3031,6 +3167,14 @@ static struct sys_reg_desc sys_insn_descs[] = {
 	{ SYS_DESC(SYS_DC_ISW), access_dcsw },
 	{ SYS_DESC(SYS_DC_IGSW), access_dcgsw },
 	{ SYS_DESC(SYS_DC_IGDSW), access_dcgsw },
+
+	SYS_INSN(AT_S1E1R, handle_s1e01),
+	SYS_INSN(AT_S1E1W, handle_s1e01),
+	SYS_INSN(AT_S1E0R, handle_s1e01),
+	SYS_INSN(AT_S1E0W, handle_s1e01),
+	SYS_INSN(AT_S1E1RP, handle_s1e01),
+	SYS_INSN(AT_S1E1WP, handle_s1e01),
+
 	{ SYS_DESC(SYS_DC_CSW), access_dcsw },
 	{ SYS_DESC(SYS_DC_CGSW), access_dcgsw },
 	{ SYS_DESC(SYS_DC_CGDSW), access_dcgsw },
@@ -3109,6 +3253,13 @@ static struct sys_reg_desc sys_insn_descs[] = {
 	SYS_INSN(TLBI_VAAE1NXS, handle_tlbi_el1),
 	SYS_INSN(TLBI_VALE1NXS, handle_tlbi_el1),
 	SYS_INSN(TLBI_VAALE1NXS, handle_tlbi_el1),
+
+	SYS_INSN(AT_S1E2R, handle_s1e2),
+	SYS_INSN(AT_S1E2W, handle_s1e2),
+	SYS_INSN(AT_S12E1R, handle_s12r),
+	SYS_INSN(AT_S12E1W, handle_s12w),
+	SYS_INSN(AT_S12E0R, handle_s12r),
+	SYS_INSN(AT_S12E0W, handle_s12w),
 
 	SYS_INSN(TLBI_IPAS2E1IS, handle_ipas2e1is),
 	SYS_INSN(TLBI_RIPAS2E1IS, handle_ripas2e1is),
@@ -4525,6 +4676,10 @@ void kvm_init_sysreg(struct kvm_vcpu *vcpu)
 						HFGITR_EL2_TLBIRVALE1OS	|
 						HFGITR_EL2_TLBIRVAAE1OS	|
 						HFGITR_EL2_TLBIRVAE1OS);
+
+	if (!kvm_has_feat(kvm, ID_AA64MMFR1_EL1, PAN, PAN2))
+		kvm->arch.fgu[HFGITR_GROUP] |= (HFGITR_EL2_ATS1E1RP |
+						HFGITR_EL2_ATS1E1WP);
 
 	if (!kvm_has_feat(kvm, ID_AA64MMFR3_EL1, S1PIE, IMP))
 		kvm->arch.fgu[HFGxTR_GROUP] |= (HFGxTR_EL2_nPIRE0_EL1 |
