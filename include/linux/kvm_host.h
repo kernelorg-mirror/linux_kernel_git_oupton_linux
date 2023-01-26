@@ -1357,6 +1357,8 @@ int kvm_vcpu_yield_to(struct kvm_vcpu *target);
 void kvm_vcpu_on_spin(struct kvm_vcpu *vcpu, bool yield_to_kernel_mode);
 
 void kvm_flush_remote_tlbs(struct kvm *kvm);
+int kvm_flush_remote_tlbs_range(struct kvm *kvm, gfn_t start_gfn,
+				gfn_t nr_pages);
 
 #ifdef KVM_ARCH_NR_OBJS_PER_MEMORY_CACHE
 int kvm_mmu_topup_memory_cache(struct kvm_mmu_memory_cache *mc, int min);
@@ -1364,6 +1366,14 @@ int __kvm_mmu_topup_memory_cache(struct kvm_mmu_memory_cache *mc, int capacity, 
 int kvm_mmu_memory_cache_nr_free_objects(struct kvm_mmu_memory_cache *mc);
 void kvm_mmu_free_memory_cache(struct kvm_mmu_memory_cache *mc);
 void *kvm_mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc);
+#endif
+
+#ifndef __KVM_HAVE_ARCH_FLUSH_REMOTE_TLBS_RANGE
+static inline int kvm_flush_remote_tlbs_range(struct kvm *kvm, gfn_t start_gfn,
+					      gfn_t nr_pages);
+{
+	return -EOPNOTSUPP;
+}
 #endif
 
 void kvm_mmu_invalidate_begin(struct kvm *kvm, unsigned long start,
