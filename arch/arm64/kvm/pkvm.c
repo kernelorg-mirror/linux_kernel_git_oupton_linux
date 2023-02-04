@@ -207,9 +207,3 @@ void pkvm_destroy_hyp_vm(struct kvm *host_kvm)
 	host_kvm->arch.pkvm.handle = 0;
 	free_hyp_memcache(&host_kvm->arch.pkvm.teardown_mc);
 }
-
-int pkvm_init_host_vm(struct kvm *host_kvm)
-{
-	mutex_init(&host_kvm->lock);
-	return 0;
-}
