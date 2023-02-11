@@ -1107,6 +1107,8 @@ static u64 read_id_reg(const struct kvm_vcpu *vcpu, struct sys_reg_desc const *r
 
 	switch (id) {
 	case SYS_ID_AA64PFR0_EL1:
+		val &= ~ARM64_FEATURE_MASK(ID_AA64PFR0_EL1_EL3);
+		val |= SYS_FIELD_PREP(ID_AA64PFR0_EL1, EL3, (u64)vcpu->kvm->arch.pfr0_el3);
 		if (!vcpu_has_sve(vcpu))
 			val &= ~ARM64_FEATURE_MASK(ID_AA64PFR0_EL1_SVE);
 		val &= ~ARM64_FEATURE_MASK(ID_AA64PFR0_EL1_AMU);
@@ -1222,7 +1224,8 @@ static int set_id_aa64pfr0_el1(struct kvm_vcpu *vcpu,
 			       const struct sys_reg_desc *rd,
 			       u64 val)
 {
-	u8 csv2, csv3;
+	u8 csv2, csv3, el3;
+	u64 host_val;
 
 	/*
 	 * Allow AA64PFR0_EL1.CSV2 to be set from userspace as long as
@@ -1247,6 +1250,13 @@ static int set_id_aa64pfr0_el1(struct kvm_vcpu *vcpu,
 	if (val)
 		return -EINVAL;
 
+	el3 = SYS_FIELD_GET(ID_AA64PFR0_EL1, EL3, val);
+	host_val = read_sanitised_ftr_reg(SYS_ID_AA64PFR0_EL1);
+
+	if (el3 > SYS_FIELD_GET(ID_AA64PFR0_EL1, EL3, val))
+		return -EINVAL;
+
+	vcpu->kvm->arch.pfr0_el3 = el3;
 	vcpu->kvm->arch.pfr0_csv2 = csv2;
 	vcpu->kvm->arch.pfr0_csv3 = csv3;
 

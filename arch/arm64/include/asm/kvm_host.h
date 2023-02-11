@@ -225,6 +225,7 @@ struct kvm_arch {
 
 	cpumask_var_t supported_cpus;
 
+	u8 pfr0_el3;
 	u8 pfr0_csv2;
 	u8 pfr0_csv3;
 	struct {
