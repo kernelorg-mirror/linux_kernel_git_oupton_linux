@@ -254,9 +254,9 @@ static int kvm_psci_0_2_call(struct kvm_vcpu *vcpu)
 		kvm_psci_narrow_to_32bit(vcpu);
 		fallthrough;
 	case PSCI_0_2_FN64_CPU_ON:
-		mutex_lock(&kvm->lock);
+		mutex_lock(&kvm->arch.lock);
 		val = kvm_psci_vcpu_on(vcpu);
-		mutex_unlock(&kvm->lock);
+		mutex_unlock(&kvm->arch.lock);
 		break;
 	case PSCI_0_2_FN_AFFINITY_INFO:
 		kvm_psci_narrow_to_32bit(vcpu);
@@ -405,9 +405,9 @@ static int kvm_psci_0_1_call(struct kvm_vcpu *vcpu)
 		val = PSCI_RET_SUCCESS;
 		break;
 	case KVM_PSCI_FN_CPU_ON:
-		mutex_lock(&kvm->lock);
+		mutex_lock(&kvm->arch.lock);
 		val = kvm_psci_vcpu_on(vcpu);
-		mutex_unlock(&kvm->lock);
+		mutex_unlock(&kvm->arch.lock);
 		break;
 	default:
 		val = PSCI_RET_NOT_SUPPORTED;

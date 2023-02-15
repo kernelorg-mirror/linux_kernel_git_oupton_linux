@@ -16,6 +16,7 @@
 #include <linux/types.h>
 #include <linux/jump_label.h>
 #include <linux/kvm_types.h>
+#include <linux/mutex.h>
 #include <linux/percpu.h>
 #include <linux/psci.h>
 #include <asm/arch_gicv3.h>
@@ -180,6 +181,8 @@ struct kvm_protected_vm {
 };
 
 struct kvm_arch {
+	struct mutex lock;
+
 	struct kvm_s2_mmu mmu;
 
 	/* VTCR_EL2 value for this VM */

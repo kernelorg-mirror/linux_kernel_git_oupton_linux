@@ -37,6 +37,10 @@ For SRCU:
   kvm->srcu read-side critical section, for example while processing
   a vmexit.
 
+On arm64:
+
+- kvm->lock and vcpu->mutex are taken outside of kvm->arch.lock
+
 On x86:
 
 - vcpu->mutex is taken outside kvm->arch.hyperv.hv_lock and kvm->arch.xen.xen_lock
@@ -292,3 +296,15 @@ time it will be set using the Dirty tracking mechanism described above.
 		wakeup notification event since external interrupts from the
 		assigned devices happens, we will find the vCPU on the list to
 		wakeup.
+
+``kvm->arch.lock``
+^^^^^^^^^^^^^^^^^^
+:Type:		mutex
+:Arch:		arm64
+:Protects:	- KVM_ARCH_FLAG_HAS_RAN_ONCE
+		- KVM_ARCH_FLAG_REG_WIDTH_CONFIGURED
+		- KVM_ARCH_FLAG_EL1_32BIT
+		- kvm->arch.smccc_feat
+		- kvm->arch.pmu_filter
+		- kvm->arch.arm_pmu
+		- kvm->arch.supported_cpus
