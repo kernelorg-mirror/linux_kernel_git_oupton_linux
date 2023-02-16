@@ -771,7 +771,7 @@ static int kvm_arm_prepare_reg_access(struct kvm_vcpu *vcpu,
 	return 0;
 }
 
-int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
+int kvm_arch_get_one_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 {
 	int r;
 
@@ -793,7 +793,7 @@ int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 	return kvm_arm_sys_reg_get_reg(vcpu, reg);
 }
 
-int kvm_arm_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
+int kvm_arch_set_one_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 {
 	int r;
 

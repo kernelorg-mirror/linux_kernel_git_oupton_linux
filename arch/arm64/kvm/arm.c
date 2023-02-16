@@ -1317,20 +1317,6 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		r = kvm_arch_vcpu_ioctl_vcpu_init(vcpu, &init);
 		break;
 	}
-	case KVM_SET_ONE_REG:
-	case KVM_GET_ONE_REG: {
-		struct kvm_one_reg reg;
-
-		r = -EFAULT;
-		if (copy_from_user(&reg, argp, sizeof(reg)))
-			break;
-
-		if (ioctl == KVM_SET_ONE_REG)
-			r = kvm_arm_set_reg(vcpu, &reg);
-		else
-			r = kvm_arm_get_reg(vcpu, &reg);
-		break;
-	}
 	case KVM_GET_REG_LIST: {
 		struct kvm_reg_list __user *user_list = argp;
 		struct kvm_reg_list reg_list;

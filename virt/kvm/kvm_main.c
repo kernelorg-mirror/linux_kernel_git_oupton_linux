@@ -4058,6 +4058,23 @@ static int kvm_vcpu_ioctl_get_stats_fd(struct kvm_vcpu *vcpu)
 	return fd;
 }
 
+static int kvm_vcpu_ioctl_one_reg(struct kvm_vcpu *vcpu, unsigned int ioctl,
+				  void __user *argp)
+{
+	struct kvm_one_reg reg;
+
+	if (!IS_ENABLED(CONFIG_HAVE_KVM_ONE_REG))
+		return -EINVAL;
+
+	if (copy_from_user(&reg, argp, sizeof(reg)))
+		return -EFAULT;
+
+	if (ioctl == KVM_SET_ONE_REG)
+		return kvm_arch_set_one_reg(vcpu, &reg);
+
+	return kvm_arch_get_one_reg(vcpu, &reg);
+}
+
 static long kvm_vcpu_ioctl(struct file *filp,
 			   unsigned int ioctl, unsigned long arg)
 {
@@ -4257,6 +4274,11 @@ out_free1:
 	}
 	case KVM_GET_STATS_FD: {
 		r = kvm_vcpu_ioctl_get_stats_fd(vcpu);
+		break;
+	}
+	case KVM_GET_ONE_REG:
+	case KVM_SET_ONE_REG: {
+		r = kvm_vcpu_ioctl_one_reg(vcpu, ioctl, argp);
 		break;
 	}
 	default:

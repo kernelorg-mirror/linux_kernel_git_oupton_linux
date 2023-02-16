@@ -2281,4 +2281,20 @@ static inline void kvm_account_pgtable_pages(void *virt, int nr)
 /* Max number of entries allowed for each kvm dirty ring */
 #define  KVM_DIRTY_RING_MAX_ENTRIES  65536
 
+#ifdef CONFIG_HAVE_KVM_ONE_REG
+int kvm_arch_get_one_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg);
+int kvm_arch_set_one_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg);
+#else
+static inline int kvm_arch_get_one_reg(struct kvm_vcpu *vcpu,
+				       const struct kvm_one_reg *reg)
+{
+	return -EINVAL;
+}
+static inline int kvm_arch_set_one_reg(struct kvm_vcpu *vcpu,
+				       const struct kvm_one_reg *reg)
+{
+	return -EINVAL;
+}
+#endif /* CONFIG_HAVE_KVM_ONE_REG */
+
 #endif
