@@ -748,11 +748,36 @@ int kvm_arm_copy_reg_indices(struct kvm_vcpu *vcpu, u64 __user *uindices)
 	return kvm_arm_copy_sys_reg_indices(vcpu, uindices);
 }
 
-int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
+static int kvm_arm_prepare_reg_access(struct kvm_vcpu *vcpu,
+				      const struct kvm_one_reg *reg)
 {
+	if (unlikely(!kvm_vcpu_initialized(vcpu)))
+		return -ENOEXEC;
+
+	if (!kvm_arm_vcpu_is_finalized(vcpu))
+		return -EPERM;
+
 	/* We currently use nothing arch-specific in upper 32 bits */
 	if ((reg->id & ~KVM_REG_SIZE_MASK) >> 32 != KVM_REG_ARM64 >> 32)
 		return -EINVAL;
+
+	/*
+	 * We could owe a reset due to PSCI. Handle the pending reset here to
+	 * ensure userspace register accesses are ordered after the reset.
+	 */
+	if (kvm_check_request(KVM_REQ_VCPU_RESET, vcpu))
+		kvm_reset_vcpu(vcpu);
+
+	return 0;
+}
+
+int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
+{
+	int r;
+
+	r = kvm_arm_prepare_reg_access(vcpu, reg);
+	if (r)
+		return r;
 
 	switch (reg->id & KVM_REG_ARM_COPROC_MASK) {
 	case KVM_REG_ARM_CORE:	return get_core_reg(vcpu, reg);
@@ -770,9 +795,11 @@ int kvm_arm_get_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 
 int kvm_arm_set_reg(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg)
 {
-	/* We currently use nothing arch-specific in upper 32 bits */
-	if ((reg->id & ~KVM_REG_SIZE_MASK) >> 32 != KVM_REG_ARM64 >> 32)
-		return -EINVAL;
+	int r;
+
+	r = kvm_arm_prepare_reg_access(vcpu, reg);
+	if (r)
+		return r;
 
 	switch (reg->id & KVM_REG_ARM_COPROC_MASK) {
 	case KVM_REG_ARM_CORE:	return set_core_reg(vcpu, reg);
