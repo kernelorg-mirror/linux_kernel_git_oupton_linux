@@ -72,4 +72,9 @@ config PROTECTED_NVHE_STACKTRACE
 
 	  If unsure, or not using protected nVHE (pKVM), say N.
 
+config KVM_RMM
+        bool "KVM RMM implementation"
+	depends on RUST
+	default n
+
 endif # VIRTUALIZATION
