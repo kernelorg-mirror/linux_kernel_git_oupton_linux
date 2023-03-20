@@ -2115,7 +2115,6 @@ EXPORT_SYMBOL_GPL(kvm_emulate_monitor);
 
 static inline bool kvm_vcpu_exit_request(struct kvm_vcpu *vcpu)
 {
-	xfer_to_guest_mode_prepare();
 	return vcpu->mode == EXITING_GUEST_MODE || kvm_request_pending(vcpu) ||
 		xfer_to_guest_mode_work_pending();
 }
