@@ -1604,21 +1604,37 @@ out_unlock:
 	return ret != -EAGAIN ? ret : 0;
 }
 
-/* Resolve the access fault by making the page young again. */
-static void handle_access_fault(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
+static bool is_attr_fault(unsigned long fault_status)
 {
+	return fault_status == ESR_ELx_FSC_ACCESS ||
+	       fault_status == ESR_ELx_FSC_PERM;
+}
+
+static int try_handle_attr_fault(struct kvm_vcpu *vcpu,
+				 struct kvm_memory_slot *memslot,
+				 phys_addr_t fault_ipa)
+{
+	unsigned long fault_status = kvm_vcpu_trap_get_fault_type(vcpu);
+	enum kvm_pgtable_prot prot;
 	kvm_pte_t pte;
-	struct kvm_s2_mmu *mmu;
+	kvm_pfn_t pfn;
+	int ret;
 
-	trace_kvm_access_fault(fault_ipa);
+	if (fault_status == ESR_ELx_FSC_ACCESS) {
+		trace_kvm_access_fault(fault_ipa);
+		prot = KVM_PGTABLE_PROT_AF;
+	} else {
+		return -EPERM;
+	}
 
-	read_lock(&vcpu->kvm->mmu_lock);
-	mmu = vcpu->arch.hw_mmu;
-	pte = kvm_pgtable_stage2_mkyoung(mmu->pgt, fault_ipa);
-	read_unlock(&vcpu->kvm->mmu_lock);
+	ret = kvm_pgtable_stage2_relax_perms(vcpu->arch.hw_mmu->pgt, fault_ipa,
+					     prot, &pte);
+	if (ret)
+		return ret;
 
-	if (kvm_pte_valid(pte))
-		kvm_set_pfn_accessed(kvm_pte_to_pfn(pte));
+	pfn = kvm_pte_to_pfn(pte);
+	kvm_set_pfn_accessed(pfn);
+	return 1;
 }
 
 /**
@@ -1696,6 +1712,15 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
 
 	gfn = fault_ipa >> PAGE_SHIFT;
 	memslot = gfn_to_memslot(vcpu->kvm, gfn);
+
+	if (is_attr_fault(fault_status)) {
+		ret = try_handle_attr_fault(vcpu, memslot, fault_ipa);
+		if (ret == -EAGAIN)
+			ret = 1;
+		if (ret != -EPERM)
+			goto out;
+	}
+
 	hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
 	write_fault = kvm_is_write_fault(vcpu);
 	if (kvm_is_error_hva(hva) || (write_fault && !writable)) {
@@ -1745,12 +1770,6 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
 
 	/* Userspace should not be able to register out-of-bounds IPAs */
 	VM_BUG_ON(fault_ipa >= kvm_phys_size(vcpu->kvm));
-
-	if (fault_status == ESR_ELx_FSC_ACCESS) {
-		handle_access_fault(vcpu, fault_ipa);
-		ret = 1;
-		goto out_unlock;
-	}
 
 	ret = user_mem_abort(vcpu, fault_ipa, memslot, hva, fault_status);
 	if (ret == 0)
