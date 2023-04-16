@@ -1312,11 +1312,24 @@ int kvm_pgtable_stage2_relax_perms(struct kvm_pgtable *pgt, u64 addr,
 	if (prot & KVM_PGTABLE_PROT_X)
 		clr |= KVM_PTE_LEAF_ATTR_HI_S2_XN;
 
+	if (prot & KVM_PGTABLE_PROT_AF)
+		set |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
+
 	ret = stage2_update_leaf_attrs(pgt, addr, 1, set, clr, pte, &level,
 				       KVM_PGTABLE_WALK_HANDLE_FAULT |
 				       KVM_PGTABLE_WALK_SHARED);
-	if (!ret)
+	if (ret)
+		return ret;
+
+	/*
+	 * Avoid an unnecessary TLB invalidation for updates that only set the
+	 * access flag.
+	 */
+	if (prot == KVM_PGTABLE_PROT_AF)
+		dsb(nshst);
+	else
 		kvm_call_hyp(__kvm_tlb_flush_vmid_ipa_nsh, pgt->mmu, addr, level);
+
 	return ret;
 }
 
