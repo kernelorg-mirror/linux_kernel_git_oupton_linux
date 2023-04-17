@@ -1096,30 +1096,30 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
 }
 
 /**
- * stage2_wp_range() - write protect stage2 memory region range
+ * stage2_clean_range() - clean stage2 memory region range
  * @mmu:        The KVM stage-2 MMU pointer
  * @addr:	Start address of range
  * @end:	End address of range
  */
-static void stage2_wp_range(struct kvm_s2_mmu *mmu, phys_addr_t addr, phys_addr_t end)
+static void stage2_clean_range(struct kvm_s2_mmu *mmu, phys_addr_t addr, phys_addr_t end)
 {
-	stage2_apply_range_resched(mmu, addr, end, kvm_pgtable_stage2_wrprotect);
+	stage2_apply_range_resched(mmu, addr, end, kvm_pgtable_stage2_mkclean);
 }
 
 /**
- * kvm_mmu_wp_memory_region() - write protect stage 2 entries for memory slot
+ * kvm_mmu_clean_memory_region() - clean stage 2 entries for memory slot
  * @kvm:	The KVM pointer
  * @slot:	The memory slot to write protect
  *
  * Called to start logging dirty pages after memory region
  * KVM_MEM_LOG_DIRTY_PAGES operation is called. After this function returns
- * all present PUD, PMD and PTEs are write protected in the memory region.
- * Afterwards read of dirty page log can be called.
+ * all present PUD, PMD and PTEs are clean in the memory region. Afterwards
+ * read of dirty page log can be called.
  *
  * Acquires kvm_mmu_lock. Called with kvm->slots_lock mutex acquired,
  * serializing operations for VM memory regions.
  */
-static void kvm_mmu_wp_memory_region(struct kvm *kvm, int slot)
+static void kvm_mmu_clean_memory_region(struct kvm *kvm, int slot)
 {
 	struct kvm_memslots *slots = kvm_memslots(kvm);
 	struct kvm_memory_slot *memslot = id_to_memslot(slots, slot);
@@ -1132,7 +1132,7 @@ static void kvm_mmu_wp_memory_region(struct kvm *kvm, int slot)
 	end = (memslot->base_gfn + memslot->npages) << PAGE_SHIFT;
 
 	write_lock(&kvm->mmu_lock);
-	stage2_wp_range(&kvm->arch.mmu, start, end);
+	stage2_clean_range(&kvm->arch.mmu, start, end);
 	write_unlock(&kvm->mmu_lock);
 	kvm_flush_remote_tlbs_memslot(kvm, memslot);
 }
@@ -1186,7 +1186,7 @@ void kvm_arch_mmu_enable_log_dirty_pt_masked(struct kvm *kvm,
 
 	lockdep_assert_held_write(&kvm->mmu_lock);
 
-	stage2_wp_range(&kvm->arch.mmu, start, end);
+	stage2_clean_range(&kvm->arch.mmu, start, end);
 
 	/*
 	 * Eager-splitting is done when manual-protect is set.  We
@@ -2009,7 +2009,7 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 		 * 2. without initial-all-set: all in one shot when
 		 *    enabling dirty logging.
 		 */
-		kvm_mmu_wp_memory_region(kvm, new->id);
+		kvm_mmu_clean_memory_region(kvm, new->id);
 		kvm_mmu_split_memory_region(kvm, new->id);
 	} else {
 		/*

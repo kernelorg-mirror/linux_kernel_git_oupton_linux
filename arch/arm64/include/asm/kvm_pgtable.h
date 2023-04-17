@@ -577,10 +577,10 @@ int kvm_pgtable_stage2_set_owner(struct kvm_pgtable *pgt, u64 addr, u64 size,
 int kvm_pgtable_stage2_unmap(struct kvm_pgtable *pgt, u64 addr, u64 size);
 
 /**
- * kvm_pgtable_stage2_wrprotect() - Write-protect guest stage-2 address range
- *                                  without TLB invalidation.
+ * kvm_pgtable_stage2_mkclean() - Mark guest stage-2 address range as clean
+ *				  without TLB invalidation.
  * @pgt:	Page-table structure initialised by kvm_pgtable_stage2_init*().
- * @addr:	Intermediate physical address from which to write-protect,
+ * @addr:	Intermediate physical address from which to clean,
  * @size:	Size of the range.
  *
  * The offset of @addr within a page is ignored and @size is rounded-up to
@@ -592,7 +592,7 @@ int kvm_pgtable_stage2_unmap(struct kvm_pgtable *pgt, u64 addr, u64 size);
  *
  * Return: 0 on success, negative error code on failure.
  */
-int kvm_pgtable_stage2_wrprotect(struct kvm_pgtable *pgt, u64 addr, u64 size);
+int kvm_pgtable_stage2_mkclean(struct kvm_pgtable *pgt, u64 addr, u64 size);
 
 /**
  * kvm_pgtable_stage2_test_clear_young() - Test and optionally clear the access
