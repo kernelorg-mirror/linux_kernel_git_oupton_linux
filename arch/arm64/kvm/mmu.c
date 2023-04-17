@@ -1623,6 +1623,8 @@ static int try_handle_attr_fault(struct kvm_vcpu *vcpu,
 	if (fault_status == ESR_ELx_FSC_ACCESS) {
 		trace_kvm_access_fault(fault_ipa);
 		prot = KVM_PGTABLE_PROT_AF;
+	} else if (kvm_vcpu_trap_is_exec_fault(vcpu)) {
+		prot = KVM_PGTABLE_PROT_X;
 	} else {
 		return -EPERM;
 	}
