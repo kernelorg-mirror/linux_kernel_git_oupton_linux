@@ -1066,8 +1066,10 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
 	struct kvm_mmu_memory_cache cache = { .gfp_zero = __GFP_ZERO };
 	struct kvm_pgtable *pgt = kvm->arch.mmu.pgt;
 	enum kvm_pgtable_prot prot = KVM_PGTABLE_PROT_DEVICE |
-				     KVM_PGTABLE_PROT_R |
-				     (writable ? KVM_PGTABLE_PROT_W : 0);
+				     KVM_PGTABLE_PROT_R;
+
+	if (writable)
+		prot |= KVM_PGTABLE_PROT_W | KVM_PGTABLE_PROT_DIRTY;
 
 	if (is_protected_kvm_enabled())
 		return -EPERM;
@@ -1522,12 +1524,6 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		 * change things at the last minute.
 		 */
 		device = true;
-	} else if (logging_active && !write_fault) {
-		/*
-		 * Only actually map the page as writable if this was a write
-		 * fault.
-		 */
-		writable = false;
 	}
 
 	if (exec_fault && device)
@@ -1567,8 +1563,11 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		}
 	}
 
-	if (writable)
+	if (writable) {
 		prot |= KVM_PGTABLE_PROT_W;
+		if (write_fault || !logging_active)
+			prot |= KVM_PGTABLE_PROT_DIRTY;
+	}
 
 	if (exec_fault)
 		prot |= KVM_PGTABLE_PROT_X;
@@ -1593,7 +1592,7 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 					     KVM_PGTABLE_WALK_SHARED);
 
 	/* Mark the page dirty only if the fault is handled successfully */
-	if (writable && !ret) {
+	if (!ret && (prot & KVM_PGTABLE_PROT_DIRTY)) {
 		kvm_set_pfn_dirty(pfn);
 		mark_page_dirty_in_slot(kvm, memslot, gfn);
 	}
