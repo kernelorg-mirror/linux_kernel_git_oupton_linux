@@ -1577,19 +1577,11 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	else if (cpus_have_const_cap(ARM64_HAS_CACHE_DIC))
 		prot |= KVM_PGTABLE_PROT_X;
 
-	/*
-	 * Under the premise of getting a FSC_PERM fault, we just need to relax
-	 * permissions only if vma_pagesize equals fault_granule. Otherwise,
-	 * kvm_pgtable_stage2_map() should be called to change block size.
-	 */
-	if (fault_status == ESR_ELx_FSC_PERM && vma_pagesize == fault_granule)
-		ret = kvm_pgtable_stage2_relax_perms(pgt, fault_ipa, prot, NULL);
-	else
-		ret = kvm_pgtable_stage2_map(pgt, fault_ipa, vma_pagesize,
-					     __pfn_to_phys(pfn), prot,
-					     memcache,
-					     KVM_PGTABLE_WALK_HANDLE_FAULT |
-					     KVM_PGTABLE_WALK_SHARED);
+	ret = kvm_pgtable_stage2_map(pgt, fault_ipa, vma_pagesize,
+				     __pfn_to_phys(pfn), prot,
+				     memcache,
+				     KVM_PGTABLE_WALK_HANDLE_FAULT |
+				     KVM_PGTABLE_WALK_SHARED);
 
 	/* Mark the page dirty only if the fault is handled successfully */
 	if (!ret && (prot & KVM_PGTABLE_PROT_DIRTY)) {
@@ -1614,6 +1606,10 @@ static int try_handle_attr_fault(struct kvm_vcpu *vcpu,
 				 phys_addr_t fault_ipa)
 {
 	unsigned long fault_status = kvm_vcpu_trap_get_fault_type(vcpu);
+	int fault_level = kvm_vcpu_trap_get_fault_level(vcpu);
+	unsigned long fault_granule = BIT(ARM64_HW_PGTABLE_LEVEL_SHIFT(level));
+	bool write_fault = kvm_is_write_fault(vcpu);
+	gfn_t gfn = fault_ipa >> PAGE_SHIFT;
 	enum kvm_pgtable_prot prot;
 	kvm_pte_t pte;
 	kvm_pfn_t pfn;
@@ -1624,6 +1620,8 @@ static int try_handle_attr_fault(struct kvm_vcpu *vcpu,
 		prot = KVM_PGTABLE_PROT_AF;
 	} else if (kvm_vcpu_trap_is_exec_fault(vcpu)) {
 		prot = KVM_PGTABLE_PROT_X;
+	} else if (write_fault && fault_granule == PAGE_SIZE) {
+		prot = KVM_PGTABLE_PROT_DIRTY;
 	} else {
 		return -EPERM;
 	}
@@ -1635,6 +1633,9 @@ static int try_handle_attr_fault(struct kvm_vcpu *vcpu,
 
 	pfn = kvm_pte_to_pfn(pte);
 	kvm_set_pfn_accessed(pfn);
+	if (write_fault)
+		mark_page_dirty_in_slot(vcpu->kvm, memslot, gfn);
+
 	return 1;
 }
 

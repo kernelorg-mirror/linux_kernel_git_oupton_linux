@@ -1189,6 +1189,10 @@ static int stage2_attr_walker(const struct kvm_pgtable_visit_ctx *ctx,
 	if (stage2_pte_dirty(pte) && !stage2_pte_writable(pte))
 		return -EPERM;
 
+	if (!stage2_pte_dirty(ctx->old) && stage2_pte_dirty(pte) &&
+	    (ctx->level != KVM_PGTABLE_MAX_LEVELS - 1))
+		return -EPERM;
+
 	/*
 	 * We may race with the CPU trying to set the access flag here,
 	 * but worst-case the access flag update gets lost and will be
