@@ -42,6 +42,7 @@
 
 #define KVM_PTE_LEAF_ATTR_HI_S1_XN	BIT(54)
 
+#define KVM_PTE_LEAF_ATTR_HI_S2_DBM	BIT(51)
 #define KVM_PTE_LEAF_ATTR_HI_S2_XN	BIT(54)
 
 #define KVM_PTE_LEAF_ATTR_HI_S1_GP	BIT(50)
@@ -688,6 +689,7 @@ static int stage2_set_prot_attr(struct kvm_pgtable *pgt, enum kvm_pgtable_prot p
 				kvm_pte_t *ptep)
 {
 	bool device = prot & KVM_PGTABLE_PROT_DEVICE;
+	bool dirty = prot & KVM_PGTABLE_PROT_DIRTY;
 	kvm_pte_t attr = device ? KVM_S2_MEMATTR(pgt, DEVICE_nGnRE) :
 			    KVM_S2_MEMATTR(pgt, NORMAL);
 	u32 sh = KVM_PTE_LEAF_ATTR_LO_S2_SH_IS;
@@ -700,8 +702,13 @@ static int stage2_set_prot_attr(struct kvm_pgtable *pgt, enum kvm_pgtable_prot p
 	if (prot & KVM_PGTABLE_PROT_R)
 		attr |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R;
 
-	if (prot & KVM_PGTABLE_PROT_W)
-		attr |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
+	if (prot & KVM_PGTABLE_PROT_W) {
+		attr |= KVM_PTE_LEAF_ATTR_HI_S2_DBM;
+		if (dirty)
+			attr |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
+	} else if (dirty) {
+		return -EINVAL;
+	}
 
 	attr |= FIELD_PREP(KVM_PTE_LEAF_ATTR_LO_S2_SH, sh);
 	attr |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
@@ -867,6 +874,16 @@ static bool stage2_pte_cacheable(struct kvm_pgtable *pgt, kvm_pte_t pte)
 static bool stage2_pte_executable(kvm_pte_t pte)
 {
 	return !(pte & KVM_PTE_LEAF_ATTR_HI_S2_XN);
+}
+
+static bool stage2_pte_writable(kvm_pte_t pte)
+{
+	return pte & KVM_PTE_LEAF_ATTR_HI_S2_DBM;
+}
+
+static bool stage2_pte_dirty(kvm_pte_t pte)
+{
+	return pte & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
 }
 
 static u64 stage2_map_walker_phys_addr(const struct kvm_pgtable_visit_ctx *ctx,
@@ -1161,6 +1178,9 @@ static int stage2_attr_walker(const struct kvm_pgtable_visit_ctx *ctx,
 	pte &= ~data->attr_clr;
 	pte |= data->attr_set;
 
+	if (stage2_pte_dirty(pte) && !stage2_pte_writable(pte))
+		return -EPERM;
+
 	/*
 	 * We may race with the CPU trying to set the access flag here,
 	 * but worst-case the access flag update gets lost and will be
@@ -1284,13 +1304,16 @@ int kvm_pgtable_stage2_relax_perms(struct kvm_pgtable *pgt, u64 addr,
 		set |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R;
 
 	if (prot & KVM_PGTABLE_PROT_W)
-		set |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
+		set |= KVM_PTE_LEAF_ATTR_HI_S2_DBM;
 
 	if (prot & KVM_PGTABLE_PROT_X)
 		clr |= KVM_PTE_LEAF_ATTR_HI_S2_XN;
 
 	if (prot & KVM_PGTABLE_PROT_AF)
 		set |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
+
+	if (prot & KVM_PGTABLE_PROT_DIRTY)
+		set |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
 
 	ret = stage2_update_leaf_attrs(pgt, addr, 1, set, clr, pte, &level,
 				       KVM_PGTABLE_WALK_HANDLE_FAULT |
