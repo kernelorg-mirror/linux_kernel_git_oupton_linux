@@ -121,6 +121,11 @@ static bool kvm_pte_table(kvm_pte_t pte, u32 level)
 	return FIELD_GET(KVM_PTE_TYPE, pte) == KVM_PTE_TYPE_TABLE;
 }
 
+static bool kvm_pte_valid_leaf(kvm_pte_t pte, u32 level)
+{
+	return kvm_pte_valid(pte) && !kvm_pte_table(pte, level);
+}
+
 static kvm_pte_t *kvm_pte_follow(kvm_pte_t pte, struct kvm_pgtable_mm_ops *mm_ops)
 {
 	return mm_ops->phys_to_virt(kvm_pte_to_phys(pte));
@@ -827,14 +832,54 @@ static bool stage2_leaf_mapping_allowed(const struct kvm_pgtable_visit_ctx *ctx,
 	return kvm_block_mapping_supported(ctx, phys);
 }
 
+static void __stage2_do_icache_maintenance(const struct kvm_pgtable_visit_ctx *ctx,
+					   struct kvm_pgtable *pgt, kvm_pte_t new,
+					   void *alias)
+{
+	struct kvm_pgtable_mm_ops *mm_ops = ctx->mm_ops;
+
+	if (!kvm_pte_valid_leaf(new, ctx->level) || !stage2_pte_executable(new))
+		return;
+
+	if (mm_ops->icache_inval_pou)
+		mm_ops->icache_inval_pou(alias, kvm_granule_size(ctx->level));
+}
+
+static void __stage2_do_dcache_maintenance(const struct kvm_pgtable_visit_ctx *ctx,
+					   struct kvm_pgtable *pgt, kvm_pte_t new,
+					   void *alias)
+{
+	struct kvm_pgtable_mm_ops *mm_ops = ctx->mm_ops;
+
+	if (stage2_has_fwb(pgt))
+		return;
+
+	if (mm_ops->dcache_clean_inval_poc)
+		mm_ops->dcache_clean_inval_poc(alias, kvm_granule_size(ctx->level));
+}
+
+static void stage2_do_cache_maintenance(const struct kvm_pgtable_visit_ctx *ctx,
+					struct kvm_pgtable *pgt, kvm_pte_t new)
+{
+	kvm_pte_t pte = new;
+	void *alias;
+
+	if (!kvm_pte_valid(pte))
+		return;
+
+	alias = kvm_pte_follow(pte, ctx->mm_ops);
+
+	__stage2_do_icache_maintenance(ctx, pgt, new, alias);
+	if (stage2_pte_cacheable(pte))
+		__stage2_do_dcache_maintenance(ctx, pgt, new, alias);
+}
+
 static int stage2_map_walker_try_leaf(const struct kvm_pgtable_visit_ctx *ctx,
 				      struct stage2_map_data *data)
 {
 	kvm_pte_t new;
 	u64 phys = stage2_map_walker_phys_addr(ctx, data);
-	u64 granule = kvm_granule_size(ctx->level);
 	struct kvm_pgtable *pgt = data->mmu->pgt;
-	struct kvm_pgtable_mm_ops *mm_ops = ctx->mm_ops;
 
 	if (!stage2_leaf_mapping_allowed(ctx, data))
 		return -E2BIG;
@@ -857,13 +902,7 @@ static int stage2_map_walker_try_leaf(const struct kvm_pgtable_visit_ctx *ctx,
 		return -EAGAIN;
 
 	/* Perform CMOs before installation of the guest stage-2 PTE */
-	if (mm_ops->dcache_clean_inval_poc && stage2_pte_cacheable(pgt, new))
-		mm_ops->dcache_clean_inval_poc(kvm_pte_follow(new, mm_ops),
-						granule);
-
-	if (mm_ops->icache_inval_pou && stage2_pte_executable(new))
-		mm_ops->icache_inval_pou(kvm_pte_follow(new, mm_ops), granule);
-
+	stage2_do_cache_maintenance(ctx, pgt, new);
 	stage2_make_pte(ctx, new);
 
 	return 0;
