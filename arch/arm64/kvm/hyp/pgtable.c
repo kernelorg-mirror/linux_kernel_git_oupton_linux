@@ -861,8 +861,19 @@ static void __stage2_do_dcache_maintenance(const struct kvm_pgtable_visit_ctx *c
 static void stage2_do_cache_maintenance(const struct kvm_pgtable_visit_ctx *ctx,
 					struct kvm_pgtable *pgt, kvm_pte_t new)
 {
-	kvm_pte_t pte = new;
+	kvm_pte_t pte = 0;
 	void *alias;
+
+	/*
+	 * Determine the PA (and, by extension, the VA alias) to use for CMOs by
+	 * taking the output of a valid leaf PTE. The IPA->PA relationship is
+	 * constant while holding the MMU lock, so using either the old or the
+	 * new value is safe.
+	 */
+	if (kvm_pte_valid_leaf(ctx->old))
+		pte = ctx->old;
+	else if (kvm_pte_valid_leaf(new))
+		pte = new;
 
 	if (!kvm_pte_valid(pte))
 		return;
@@ -1075,10 +1086,7 @@ static int stage2_unmap_walker(const struct kvm_pgtable_visit_ctx *ctx,
 	 * back lazily.
 	 */
 	stage2_put_pte(ctx, mmu, mm_ops);
-
-	if (need_flush && mm_ops->dcache_clean_inval_poc)
-		mm_ops->dcache_clean_inval_poc(kvm_pte_follow(ctx->old, mm_ops),
-					       kvm_granule_size(ctx->level));
+	stage2_do_cache_maintenance(ctx, pgt, new);
 
 	if (childp)
 		mm_ops->put_page(childp);
