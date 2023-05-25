@@ -801,6 +801,11 @@ static bool stage2_pte_executable(kvm_pte_t pte)
 	return !(pte & KVM_PTE_LEAF_ATTR_HI_S2_XN);
 }
 
+static bool stage2_pte_writable(kvm_pte_t pte)
+{
+	return pte & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
+}
+
 static u64 stage2_map_walker_phys_addr(const struct kvm_pgtable_visit_ctx *ctx,
 				       const struct stage2_map_data *data)
 {
@@ -850,9 +855,26 @@ static void __stage2_do_dcache_maintenance(const struct kvm_pgtable_visit_ctx *c
 					   void *alias)
 {
 	struct kvm_pgtable_mm_ops *mm_ops = ctx->mm_ops;
+	bool need_cmo = false;
 
 	if (stage2_has_fwb(pgt))
 		return;
+
+	/*
+	 * Invalidate the dcache when installing a new mapping, ensuring that
+	 * cacheable writes from the host are visible to a guest using a
+	 * non-cacheable mapping.
+	 */
+	need_cmo |= !kvm_pte_valid_leaf(ctx->old, ctx->level) &&
+			kvm_pte_valid_leaf(new, ctx->level);
+
+	/*
+	 * Clean the dcache when 'cleaning' a writable mapping, either by
+	 * marking it read-only or invalid, ensuring that non-cacheable writes
+	 * from the guest are visible to the host using a cacheable mapping.
+	 */
+	need_cmo |= stage2_pte_dirty(ctx->old, ctx->level) &&
+			!stage2_pte_dirty(new, ctx->level);
 
 	if (mm_ops->dcache_clean_inval_poc)
 		mm_ops->dcache_clean_inval_poc(alias, kvm_granule_size(ctx->level));
