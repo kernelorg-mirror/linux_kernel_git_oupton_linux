@@ -1372,8 +1372,8 @@ void *kvm_mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc);
 #endif
 
 #ifndef __KVM_HAVE_ARCH_FLUSH_REMOTE_TLBS_RANGE
-static inline int kvm_flush_remote_tlbs_range(struct kvm *kvm, gfn_t start_gfn,
-					      gfn_t nr_pages);
+static inline int kvm_arch_flush_remote_tlbs_range(struct kvm *kvm, gfn_t start_gfn,
+						   gfn_t nr_pages);
 {
 	return -EOPNOTSUPP;
 }
