@@ -1082,7 +1082,8 @@ struct kvm *kvm_arch_alloc_vm(void);
 int kvm_arch_flush_remote_tlbs(struct kvm *kvm);
 
 #define __KVM_HAVE_ARCH_FLUSH_REMOTE_TLBS_RANGE
-int kvm_arch_flush_remote_tlbs_range(struct kvm *kvm, gfn_t start_gfn, u64 pages);
+int kvm_arch_flush_remote_tlbs_range(struct kvm *kvm, gfn_t start_gfn,
+				     gfn_t nr_pages);
 
 static inline bool kvm_vm_is_protected(struct kvm *kvm)
 {
