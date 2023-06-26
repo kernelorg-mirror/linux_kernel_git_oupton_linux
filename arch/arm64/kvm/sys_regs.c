@@ -2411,19 +2411,26 @@ static bool trap_dbgdidr(struct kvm_vcpu *vcpu,
 			struct sys_reg_params *p,
 			const struct sys_reg_desc *r)
 {
-	if (p->is_write) {
-		return ignore_write(vcpu, p);
-	} else {
-		u64 dfr = read_sanitised_ftr_reg(SYS_ID_AA64DFR0_EL1);
-		u64 pfr = read_sanitised_ftr_reg(SYS_ID_AA64PFR0_EL1);
-		u32 el3 = !!cpuid_feature_extract_unsigned_field(pfr, ID_AA64PFR0_EL1_EL3_SHIFT);
+	u64 dfr = read_sanitised_ftr_reg(SYS_ID_AA64DFR0_EL1);
+	u64 pfr = read_sanitised_ftr_reg(SYS_ID_AA64PFR0_EL1);
+	u32 ctx_cmps = SYS_FIELD_GET(ID_AA64DFR0_EL1, CTX_CMPs, dfr);
+	u32 wrps = SYS_FIELD_GET(ID_AA64DFR0_EL1, WRPs, dfr);
+	u32 brps = SYS_FIELD_GET(ID_AA64DFR0_EL1, BRPs, dfr);
+	bool el3 = SYS_FIELD_GET(ID_AA64PFR0_EL1, EL3, pfr);
 
-		p->regval = ((((dfr >> ID_AA64DFR0_EL1_WRPs_SHIFT) & 0xf) << 28) |
-			     (((dfr >> ID_AA64DFR0_EL1_BRPs_SHIFT) & 0xf) << 24) |
-			     (((dfr >> ID_AA64DFR0_EL1_CTX_CMPs_SHIFT) & 0xf) << 20)
-			     | (6 << 16) | (1 << 15) | (el3 << 14) | (el3 << 12));
-		return true;
-	}
+	if (p->is_write)
+		return ignore_write(vcpu, p);
+
+	/* RES1 */
+	p->regval = BIT(15);
+
+	if (el3)
+		p->regval |= (BIT(14) | BIT(12));
+
+	p->regval |= ((wrps << 28) | (brps << 24) | (ctx_cmps << 20) |
+		      (6 << 16));
+
+	return true;
 }
 
 /*
