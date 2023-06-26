@@ -1343,9 +1343,17 @@ static u64 kvm_read_sanitised_id_reg(struct kvm_vcpu *vcpu,
 	return __kvm_read_sanitised_id_reg(vcpu, r);
 }
 
+static u64 kvm_read_guest_id_reg(const struct kvm *kvm, u32 id)
+{
+	if (WARN_ON(!kvm_id_regs_initialized(kvm) || !is_id_reg(id)))
+		return 0;
+
+	return kvm->arch.id_regs[IDREG_IDX(id)];
+}
+
 static u64 read_id_reg(const struct kvm_vcpu *vcpu, const struct sys_reg_desc *r)
 {
-	return IDREG(vcpu->kvm, reg_to_encoding(r));
+	return kvm_read_guest_id_reg(vcpu->kvm, reg_to_encoding(r));
 }
 
 /*
@@ -1590,7 +1598,7 @@ static int set_id_reg(struct kvm_vcpu *vcpu, const struct sys_reg_desc *rd,
 
 	ret = arm64_check_features(vcpu, rd, val);
 	if (!ret)
-		IDREG(vcpu->kvm, id) = val;
+		kvm->arch.id_regs[IDREG_IDX(id)] = val;
 
 	mutex_unlock(&vcpu->kvm->arch.config_lock);
 
@@ -3095,14 +3103,14 @@ static void kvm_reset_id_regs(struct kvm_vcpu *vcpu)
 	u32 id = reg_to_encoding(idreg);
 	struct kvm *kvm = vcpu->kvm;
 
-	if (test_bit(KVM_ARCH_FLAG_ID_REGS_INITIALIZED, &kvm->arch.flags))
+	if (kvm_id_regs_initialized(kvm))
 		return;
 
 	lockdep_assert_held(&kvm->arch.config_lock);
 
 	/* Initialize all idregs */
 	while (is_id_reg(id)) {
-		IDREG(kvm, id) = idreg->reset(vcpu, idreg);
+		kvm->arch.id_regs[IDREG_IDX(id)] = idreg->reset(vcpu, idreg);
 
 		idreg++;
 		id = reg_to_encoding(idreg);
