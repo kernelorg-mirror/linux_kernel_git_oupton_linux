@@ -2411,8 +2411,9 @@ static bool trap_dbgdidr(struct kvm_vcpu *vcpu,
 			struct sys_reg_params *p,
 			const struct sys_reg_desc *r)
 {
-	u64 dfr = read_sanitised_ftr_reg(SYS_ID_AA64DFR0_EL1);
-	u64 pfr = read_sanitised_ftr_reg(SYS_ID_AA64PFR0_EL1);
+	u64 dfr = kvm_read_guest_id_reg(vcpu->kvm, SYS_ID_AA64DFR0_EL1);
+	u64 pfr = kvm_read_guest_id_reg(vcpu->kvm, SYS_ID_AA64PFR0_EL1);
+	u32 debugver = SYS_FIELD_GET(ID_AA64DFR0_EL1, DebugVer, dfr);
 	u32 ctx_cmps = SYS_FIELD_GET(ID_AA64DFR0_EL1, CTX_CMPs, dfr);
 	u32 wrps = SYS_FIELD_GET(ID_AA64DFR0_EL1, WRPs, dfr);
 	u32 brps = SYS_FIELD_GET(ID_AA64DFR0_EL1, BRPs, dfr);
@@ -2428,7 +2429,7 @@ static bool trap_dbgdidr(struct kvm_vcpu *vcpu,
 		p->regval |= (BIT(14) | BIT(12));
 
 	p->regval |= ((wrps << 28) | (brps << 24) | (ctx_cmps << 20) |
-		      (6 << 16));
+		      (debugver << 16));
 
 	return true;
 }
