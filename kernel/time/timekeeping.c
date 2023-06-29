@@ -2298,6 +2298,7 @@ void do_timer(unsigned long ticks)
  * @offs_real:	pointer to storage for monotonic -> realtime offset
  * @offs_boot:	pointer to storage for monotonic -> boottime offset
  * @offs_tai:	pointer to storage for monotonic -> clock tai offset
+ * @offs_raw:	pointer to storage for monotonic -> monotonic raw offset
  *
  * Returns current monotonic time and updates the offsets if the
  * sequence number in @cwsseq and timekeeper.clock_was_set_seq are
@@ -2306,19 +2307,26 @@ void do_timer(unsigned long ticks)
  * Called from hrtimer_interrupt() or retrigger_next_event()
  */
 ktime_t ktime_get_update_offsets_now(unsigned int *cwsseq, ktime_t *offs_real,
-				     ktime_t *offs_boot, ktime_t *offs_tai)
+				     ktime_t *offs_boot, ktime_t *offs_tai,
+				     ktime_t *offs_raw)
 {
 	struct timekeeper *tk = &tk_core.timekeeper;
 	unsigned int seq;
-	ktime_t base;
-	u64 nsecs;
+	ktime_t mono, raw;
+	u64 cycles, nsecs;
 
 	do {
 		seq = read_seqcount_begin(&tk_core.seq);
 
-		base = tk->tkr_mono.base;
-		nsecs = timekeeping_get_ns(&tk->tkr_mono);
-		base = ktime_add_ns(base, nsecs);
+		mono = tk->tkr_mono.base;
+		raw = tk->tkr_raw.base;
+
+		cycles = tk_clock_read(&tk->tkr_mono);
+		nsecs = timekeeping_cycles_to_ns(&tk->tkr_mono, cycles);
+		mono = ktime_add_ns(mono, nsecs);
+
+		nsecs = timekeeping_cycles_to_ns(&tk->tkr_raw, cycles);
+		raw = ktime_add_ns(raw, nsecs);
 
 		if (*cwsseq != tk->clock_was_set_seq) {
 			*cwsseq = tk->clock_was_set_seq;
@@ -2328,12 +2336,20 @@ ktime_t ktime_get_update_offsets_now(unsigned int *cwsseq, ktime_t *offs_real,
 		}
 
 		/* Handle leapsecond insertion adjustments */
-		if (unlikely(base >= tk->next_leap_ktime))
+		if (unlikely(mono >= tk->next_leap_ktime))
 			*offs_real = ktime_sub(tk->offs_real, ktime_set(1, 0));
 
 	} while (read_seqcount_retry(&tk_core.seq, seq));
 
-	return base;
+	/*
+	 * Yes, this sort of arithmetic is mad, as the mono and raw clocks are
+	 * very likely on different scales. The hrtimer code just needs the
+	 * mono <-> raw relation for a particular instant in order to run the
+	 * timer queues.
+	 */
+	*offs_raw = ktime_sub(raw, mono);
+
+	return mono;
 }
 
 /*

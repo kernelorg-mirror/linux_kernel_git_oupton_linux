@@ -91,6 +91,11 @@ DEFINE_PER_CPU(struct hrtimer_cpu_base, hrtimer_bases) =
 			.get_time = &ktime_get_clocktai,
 		},
 		{
+			.index = HRTIMER_BASE_MONOTONIC_RAW,
+			.clockid = CLOCK_TAI,
+			.get_time = &ktime_get_raw,
+		},
+		{
 			.index = HRTIMER_BASE_MONOTONIC_SOFT,
 			.clockid = CLOCK_MONOTONIC,
 			.get_time = &ktime_get,
@@ -109,6 +114,11 @@ DEFINE_PER_CPU(struct hrtimer_cpu_base, hrtimer_bases) =
 			.index = HRTIMER_BASE_TAI_SOFT,
 			.clockid = CLOCK_TAI,
 			.get_time = &ktime_get_clocktai,
+		},
+		{
+			.index = HRTIMER_BASE_MONOTONIC_RAW_SOFT,
+			.clockid = CLOCK_MONOTONIC_RAW,
+			.get_time = &ktime_get_raw,
 		},
 	}
 };
@@ -624,13 +634,16 @@ static ktime_t hrtimer_update_next_event(struct hrtimer_cpu_base *cpu_base)
 
 static inline ktime_t hrtimer_update_base(struct hrtimer_cpu_base *base)
 {
+	ktime_t *offs_raw = &base->clock_base[HRTIMER_BASE_MONOTONIC_RAW].offset;
 	ktime_t *offs_real = &base->clock_base[HRTIMER_BASE_REALTIME].offset;
 	ktime_t *offs_boot = &base->clock_base[HRTIMER_BASE_BOOTTIME].offset;
 	ktime_t *offs_tai = &base->clock_base[HRTIMER_BASE_TAI].offset;
 
 	ktime_t now = ktime_get_update_offsets_now(&base->clock_was_set_seq,
-					    offs_real, offs_boot, offs_tai);
+						   offs_real, offs_boot,
+						   offs_tai, offs_raw);
 
+	base->clock_base[HRTIMER_BASE_MONOTONIC_RAW_SOFT].offset = *offs_raw;
 	base->clock_base[HRTIMER_BASE_REALTIME_SOFT].offset = *offs_real;
 	base->clock_base[HRTIMER_BASE_BOOTTIME_SOFT].offset = *offs_boot;
 	base->clock_base[HRTIMER_BASE_TAI_SOFT].offset = *offs_tai;
