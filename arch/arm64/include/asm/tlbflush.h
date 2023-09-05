@@ -273,12 +273,6 @@ static inline void flush_tlb_page(struct vm_area_struct *vma,
 }
 
 /*
- * This is meant to avoid soft lock-ups on large TLB flushing ranges and not
- * necessarily a performance improvement.
- */
-#define MAX_TLBI_OPS	PTRS_PER_PTE
-
-/*
  * __flush_tlb_range_op - Perform TLBI operation upon a range
  *
  * @op:	TLBI instruction that operates on a range (has 'r' prefix)

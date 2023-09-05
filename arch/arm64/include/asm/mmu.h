@@ -12,6 +12,12 @@
 #define USER_ASID_FLAG	(UL(1) << USER_ASID_BIT)
 #define TTBR_ASID_MASK	(UL(0xffff) << 48)
 
+/*
+ * This is meant to avoid soft lock-ups on large invalidation ranges and not
+ * necessarily a performance improvement.
+ */
+#define MAX_DVM_OPS	PTRS_PER_PTE
+
 #ifndef __ASSEMBLY__
 
 #include <linux/refcount.h>
