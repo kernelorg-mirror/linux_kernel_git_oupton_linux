@@ -38,7 +38,7 @@ alternative_if ARM64_HAS_CACHE_DIC
 	isb
 	b	.Lic_skip_\@
 alternative_else_nop_endif
-	invalidate_icache_by_line x0, x1, x2, x3, \fixup
+	invalidate_icache_by_line x0, x1, x2, x3, x4, \fixup
 .Lic_skip_\@:
 .endm
 
@@ -95,7 +95,7 @@ alternative_if ARM64_HAS_CACHE_DIC
 	ret
 alternative_else_nop_endif
 
-	invalidate_icache_by_line x0, x1, x2, x3
+	invalidate_icache_by_line x0, x1, x2, x3, x4
 	ret
 SYM_FUNC_END(icache_inval_pou)
 

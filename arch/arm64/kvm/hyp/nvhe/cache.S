@@ -19,7 +19,7 @@ alternative_if ARM64_HAS_CACHE_DIC
 	ret
 alternative_else_nop_endif
 
-	invalidate_icache_by_line x0, x1, x2, x3
+	invalidate_icache_by_line x0, x1, x2, x3, x4
 	ret
 SYM_FUNC_END(__pi_icache_inval_pou)
 SYM_FUNC_ALIAS(icache_inval_pou, __pi_icache_inval_pou)
