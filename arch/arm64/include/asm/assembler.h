@@ -461,7 +461,7 @@ alternative_endif
 	ic	ialluis
 	b	.Ldone\@
 
-.Linval_by_line:
+.Linval_by_line\@:
 	sub	\tmp2, \tmp1, #1
 	bic	\tmp2, \start, \tmp2
 .Licache_op\@:
