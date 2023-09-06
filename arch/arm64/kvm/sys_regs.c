@@ -1568,7 +1568,7 @@ static int get_id_reg(struct kvm_vcpu *vcpu, const struct sys_reg_desc *rd,
 	 * Avoid locking if the VM has already started, as the ID registers are
 	 * guaranteed to be invariant at that point.
 	 */
-	if (kvm_vm_has_ran_once(vcpu->kvm)) {
+	if (kvm_id_regs_finalized(vcpu->kvm)) {
 		*val = read_id_reg(vcpu, rd);
 		return 0;
 	}
@@ -1592,7 +1592,7 @@ static int set_id_reg(struct kvm_vcpu *vcpu, const struct sys_reg_desc *rd,
 	 * Once the VM has started the ID registers are immutable. Reject any
 	 * write that does not match the final register value.
 	 */
-	if (kvm_vm_has_ran_once(vcpu->kvm)) {
+	if (kvm_id_regs_finalized(vcpu->kvm)) {
 		if (val != read_id_reg(vcpu, rd))
 			ret = -EBUSY;
 		else
