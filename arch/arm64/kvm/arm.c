@@ -1282,9 +1282,6 @@ static int __kvm_vcpu_set_target(struct kvm_vcpu *vcpu,
 
 	bitmap_copy(vcpu->arch.features, &features, KVM_VCPU_MAX_FEATURES);
 
-	/* Now we know what it is, we can reset it. */
-	kvm_reset_vcpu(vcpu);
-
 	bitmap_copy(kvm->arch.vcpu_features, &features, KVM_VCPU_MAX_FEATURES);
 	set_bit(KVM_ARCH_FLAG_VCPU_FEATURES_CONFIGURED, &kvm->arch.flags);
 	vcpu_set_flag(vcpu, VCPU_INITIALIZED);
@@ -1297,7 +1294,7 @@ out_unlock:
 static int kvm_vcpu_set_target(struct kvm_vcpu *vcpu,
 			       const struct kvm_vcpu_init *init)
 {
-	int ret;
+	int ret = 0;
 
 	if (init->target != KVM_ARM_TARGET_GENERIC_V8 &&
 	    init->target != kvm_target_cpu())
@@ -1307,13 +1304,15 @@ static int kvm_vcpu_set_target(struct kvm_vcpu *vcpu,
 	if (ret)
 		return ret;
 
-	if (!kvm_vcpu_initialized(vcpu))
-		return __kvm_vcpu_set_target(vcpu, init);
-
-	if (kvm_vcpu_init_changed(vcpu, init))
+	if (!kvm_vcpu_initialized(vcpu)) {
+		ret = __kvm_vcpu_set_target(vcpu, init);
+		if (ret)
+			return ret;
+	} else if (kvm_vcpu_init_changed(vcpu, init)) {
 		return -EINVAL;
+	}
 
-	kvm_reset_vcpu(vcpu);
+	kvm_make_request(KVM_REQ_VCPU_RESET, vcpu);
 	return 0;
 }
 
