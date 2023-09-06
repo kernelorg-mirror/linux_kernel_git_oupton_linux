@@ -75,9 +75,6 @@ int __init kvm_arm_init_sve(void)
 
 static int kvm_vcpu_enable_sve(struct kvm_vcpu *vcpu)
 {
-	if (!system_supports_sve())
-		return -EINVAL;
-
 	vcpu->arch.sve_max_vl = kvm_sve_max_vl;
 
 	/*
@@ -178,8 +175,7 @@ static int kvm_vcpu_enable_ptrauth(struct kvm_vcpu *vcpu)
 	 * supports these capabilities.
 	 */
 	if (!test_bit(KVM_ARM_VCPU_PTRAUTH_ADDRESS, vcpu->arch.features) ||
-	    !test_bit(KVM_ARM_VCPU_PTRAUTH_GENERIC, vcpu->arch.features) ||
-	    !system_has_full_ptr_auth())
+	    !test_bit(KVM_ARM_VCPU_PTRAUTH_GENERIC, vcpu->arch.features))
 		return -EINVAL;
 
 	vcpu_set_flag(vcpu, GUEST_HAS_PTRAUTH);
@@ -254,11 +250,6 @@ int kvm_reset_vcpu(struct kvm_vcpu *vcpu)
 		pstate = VCPU_RESET_PSTATE_EL2;
 	else
 		pstate = VCPU_RESET_PSTATE_EL1;
-
-	if (kvm_vcpu_has_pmu(vcpu) && !kvm_arm_support_pmu_v3()) {
-		ret = -EINVAL;
-		goto out;
-	}
 
 	/* Reset core registers */
 	memset(vcpu_gp_regs(vcpu), 0, sizeof(*vcpu_gp_regs(vcpu)));

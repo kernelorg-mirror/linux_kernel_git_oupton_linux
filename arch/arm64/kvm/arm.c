@@ -1190,6 +1190,30 @@ int kvm_vm_ioctl_irq_line(struct kvm *kvm, struct kvm_irq_level *irq_level,
 	return -EINVAL;
 }
 
+static unsigned long kvm_system_supported_features(void)
+{
+	unsigned long features = KVM_VCPU_VALID_FEATURES;
+
+	if (!cpus_have_const_cap(ARM64_HAS_32BIT_EL1))
+		clear_bit(KVM_ARM_VCPU_EL1_32BIT, &features);
+
+	if (!kvm_arm_support_pmu_v3())
+		clear_bit(KVM_ARM_VCPU_PMU_V3, &features);
+
+	if (!system_supports_sve())
+		clear_bit(KVM_ARM_VCPU_SVE, &features);
+
+	if (!system_has_full_ptr_auth()) {
+		clear_bit(KVM_ARM_VCPU_PTRAUTH_ADDRESS, &features);
+		clear_bit(KVM_ARM_VCPU_PTRAUTH_GENERIC, &features);
+	}
+
+	if (!cpus_have_const_cap(ARM64_HAS_NESTED_VIRT))
+		clear_bit(KVM_ARM_VCPU_HAS_EL2, &features);
+
+	return features;
+}
+
 static int kvm_vcpu_init_check_features(struct kvm_vcpu *vcpu,
 					const struct kvm_vcpu_init *init)
 {
@@ -1204,11 +1228,11 @@ static int kvm_vcpu_init_check_features(struct kvm_vcpu *vcpu,
 			return -ENOENT;
 	}
 
+	if (features & ~kvm_system_supported_features())
+		return -EINVAL;
+
 	if (!test_bit(KVM_ARM_VCPU_EL1_32BIT, &features))
 		return 0;
-
-	if (!cpus_have_const_cap(ARM64_HAS_32BIT_EL1))
-		return -EINVAL;
 
 	/* MTE is incompatible with AArch32 */
 	if (kvm_has_mte(vcpu->kvm))
