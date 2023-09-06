@@ -169,15 +169,6 @@ static void kvm_vcpu_reset_sve(struct kvm_vcpu *vcpu)
 
 static int kvm_vcpu_enable_ptrauth(struct kvm_vcpu *vcpu)
 {
-	/*
-	 * For now make sure that both address/generic pointer authentication
-	 * features are requested by the userspace together and the system
-	 * supports these capabilities.
-	 */
-	if (!test_bit(KVM_ARM_VCPU_PTRAUTH_ADDRESS, vcpu->arch.features) ||
-	    !test_bit(KVM_ARM_VCPU_PTRAUTH_GENERIC, vcpu->arch.features))
-		return -EINVAL;
-
 	vcpu_set_flag(vcpu, GUEST_HAS_PTRAUTH);
 	return 0;
 }
@@ -219,12 +210,6 @@ int kvm_reset_vcpu(struct kvm_vcpu *vcpu)
 	loaded = (vcpu->cpu != -1);
 	if (loaded)
 		kvm_arch_vcpu_put(vcpu);
-
-	/* Disallow NV+SVE for the time being */
-	if (vcpu_has_nv(vcpu) && vcpu_has_feature(vcpu, KVM_ARM_VCPU_SVE)) {
-		ret = -EINVAL;
-		goto out;
-	}
 
 	if (!kvm_arm_vcpu_sve_finalized(vcpu)) {
 		if (test_bit(KVM_ARM_VCPU_SVE, vcpu->arch.features)) {
