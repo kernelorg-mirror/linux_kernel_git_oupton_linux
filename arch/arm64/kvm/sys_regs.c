@@ -3378,6 +3378,20 @@ static int demux_c15_set(struct kvm_vcpu *vcpu, u64 id, void __user *uaddr)
 	}
 }
 
+static void kvm_sys_reg_handle_vcpu_reset(struct kvm_vcpu *vcpu,
+					  const struct sys_reg_desc *r)
+{
+	if (is_id_reg(reg_to_encoding(r)))
+		return;
+
+	/*
+	 * We could owe a reset due to PSCI. Handle the pending reset here to
+	 * ensure userspace register accesses are ordered after the reset.
+	 */
+	if (kvm_check_request(KVM_REQ_VCPU_RESET, vcpu))
+		kvm_reset_vcpu(vcpu);
+}
+
 int kvm_sys_reg_get_user(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg,
 			 const struct sys_reg_desc table[], unsigned int num)
 {
@@ -3387,7 +3401,12 @@ int kvm_sys_reg_get_user(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg,
 	int ret;
 
 	r = id_to_sys_reg_desc(vcpu, reg->id, table, num);
-	if (!r || sysreg_hidden_user(vcpu, r))
+	if (!r)
+		return -ENOENT;
+
+	kvm_sys_reg_handle_vcpu_reset(vcpu, r);
+
+	if (sysreg_hidden_user(vcpu, r))
 		return -ENOENT;
 
 	if (r->get_user) {
@@ -3431,7 +3450,12 @@ int kvm_sys_reg_set_user(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg,
 		return -EFAULT;
 
 	r = id_to_sys_reg_desc(vcpu, reg->id, table, num);
-	if (!r || sysreg_hidden_user(vcpu, r))
+	if (!r)
+		return -ENOENT;
+
+	kvm_sys_reg_handle_vcpu_reset(vcpu, r);
+
+	if (sysreg_hidden_user(vcpu, r))
 		return -ENOENT;
 
 	if (sysreg_user_write_ignore(vcpu, r))
