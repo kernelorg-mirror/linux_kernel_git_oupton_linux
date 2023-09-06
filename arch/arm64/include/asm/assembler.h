@@ -21,6 +21,7 @@
 #include <asm/cpufeature.h>
 #include <asm/cputype.h>
 #include <asm/debug-monitors.h>
+#include <asm/mmu.h>
 #include <asm/page.h>
 #include <asm/pgtable-hwdef.h>
 #include <asm/ptrace.h>
@@ -450,8 +451,17 @@ alternative_endif
  *	fixup:		optional label to branch to on user fault
  * 	Corrupts:	tmp1, tmp2
  */
-	.macro invalidate_icache_by_line start, end, tmp1, tmp2, fixup
+	.macro invalidate_icache_by_line start, end, tmp1, tmp2, tmp3, fixup
 	icache_line_size \tmp1, \tmp2
+	lsl	\tmp3, \tmp1, #9
+	sub	\tmp2, \end, \start
+	cmp	\tmp2, \tmp3
+	b.lt	.Linval_by_line\@
+
+	ic	ialluis
+	b	.Ldone\@
+
+.Linval_by_line\@:
 	sub	\tmp2, \tmp1, #1
 	bic	\tmp2, \start, \tmp2
 .Licache_op\@:
@@ -459,6 +469,8 @@ alternative_endif
 	add	\tmp2, \tmp2, \tmp1
 	cmp	\tmp2, \end
 	b.lo	.Licache_op\@
+
+.Ldone\@:
 	dsb	ish
 	isb
 

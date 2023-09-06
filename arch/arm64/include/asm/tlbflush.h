@@ -273,12 +273,6 @@ static inline void flush_tlb_page(struct vm_area_struct *vma,
 }
 
 /*
- * This is meant to avoid soft lock-ups on large TLB flushing ranges and not
- * necessarily a performance improvement.
- */
-#define MAX_TLBI_OPS	PTRS_PER_PTE
-
-/*
  * __flush_tlb_range_op - Perform TLBI operation upon a range
  *
  * @op:	TLBI instruction that operates on a range (has 'r' prefix)
@@ -356,12 +350,12 @@ static inline void __flush_tlb_range(struct vm_area_struct *vma,
 
 	/*
 	 * When not uses TLB range ops, we can handle up to
-	 * (MAX_TLBI_OPS - 1) pages;
+	 * (MAX_DVM_OPS - 1) pages;
 	 * When uses TLB range ops, we can handle up to
 	 * (MAX_TLBI_RANGE_PAGES - 1) pages.
 	 */
 	if ((!system_supports_tlb_range() &&
-	     (end - start) >= (MAX_TLBI_OPS * stride)) ||
+	     (end - start) >= (MAX_DVM_OPS * stride)) ||
 	    pages >= MAX_TLBI_RANGE_PAGES) {
 		flush_tlb_mm(vma->vm_mm);
 		return;
@@ -393,7 +387,7 @@ static inline void flush_tlb_kernel_range(unsigned long start, unsigned long end
 {
 	unsigned long addr;
 
-	if ((end - start) > (MAX_TLBI_OPS * PAGE_SIZE)) {
+	if ((end - start) > (MAX_DVM_OPS * PAGE_SIZE)) {
 		flush_tlb_all();
 		return;
 	}
