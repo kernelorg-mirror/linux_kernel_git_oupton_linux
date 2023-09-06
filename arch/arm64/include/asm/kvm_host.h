@@ -593,6 +593,9 @@ struct kvm_vcpu_arch {
 	u32 *ccsidr;
 };
 
+#define vcpu_has_feature(vcpu, feature)				\
+	(test_bit(feature, (vcpu)->kvm->arch.vcpu_features))
+
 /*
  * Each 'flag' is composed of a comma-separated triplet:
  *
