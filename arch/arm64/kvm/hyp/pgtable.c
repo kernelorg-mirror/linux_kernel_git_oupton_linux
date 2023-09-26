@@ -42,6 +42,7 @@
 
 #define KVM_PTE_LEAF_ATTR_HI_S1_XN	BIT(54)
 
+#define KVM_PTE_LEAF_ATTR_HI_S2_DBM	BIT(51)
 #define KVM_PTE_LEAF_ATTR_HI_S2_XN	BIT(54)
 
 #define KVM_PTE_LEAF_ATTR_HI_S1_GP	BIT(50)
@@ -696,6 +697,7 @@ static int stage2_set_prot_attr(struct kvm_pgtable *pgt, enum kvm_pgtable_prot p
 				kvm_pte_t *ptep)
 {
 	bool device = prot & KVM_PGTABLE_PROT_DEVICE;
+	bool dirty = prot & KVM_PGTABLE_PROT_DIRTY;
 	kvm_pte_t attr = device ? KVM_S2_MEMATTR(pgt, DEVICE_nGnRE) :
 			    KVM_S2_MEMATTR(pgt, NORMAL);
 	u32 sh = KVM_PTE_LEAF_ATTR_LO_S2_SH_IS;
@@ -708,8 +710,13 @@ static int stage2_set_prot_attr(struct kvm_pgtable *pgt, enum kvm_pgtable_prot p
 	if (prot & KVM_PGTABLE_PROT_R)
 		attr |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R;
 
-	if (prot & KVM_PGTABLE_PROT_W)
-		attr |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
+	if (prot & KVM_PGTABLE_PROT_W) {
+		attr |= KVM_PTE_LEAF_ATTR_HI_S2_DBM;
+		if (dirty)
+			attr |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
+	} else if (dirty) {
+		return -EINVAL;
+	}
 
 	attr |= FIELD_PREP(KVM_PTE_LEAF_ATTR_LO_S2_SH, sh);
 	attr |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
@@ -875,6 +882,16 @@ static bool stage2_pte_cacheable(struct kvm_pgtable *pgt, kvm_pte_t pte)
 static bool stage2_pte_executable(kvm_pte_t pte)
 {
 	return !(pte & KVM_PTE_LEAF_ATTR_HI_S2_XN);
+}
+
+static bool stage2_pte_writable(kvm_pte_t pte)
+{
+	return pte & KVM_PTE_LEAF_ATTR_HI_S2_DBM;
+}
+
+static bool stage2_pte_dirty(kvm_pte_t pte)
+{
+	return pte & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
 }
 
 static u64 stage2_map_walker_phys_addr(const struct kvm_pgtable_visit_ctx *ctx,
@@ -1125,7 +1142,7 @@ static int stage2_unmap_walker(const struct kvm_pgtable_visit_ctx *ctx,
 					       kvm_granule_size(ctx->level));
 
 	if (childp)
-		mm_ops->put_page(childp);
+		mm_ops->free_unlinked_table(childp, ctx->level);
 
 	return 0;
 }
@@ -1168,6 +1185,13 @@ static int stage2_attr_walker(const struct kvm_pgtable_visit_ctx *ctx,
 	data->pte = pte;
 	pte &= ~data->attr_clr;
 	pte |= data->attr_set;
+
+	if (stage2_pte_dirty(pte) && !stage2_pte_writable(pte))
+		return -EPERM;
+
+	if (!stage2_pte_dirty(ctx->old) && stage2_pte_dirty(pte) &&
+	    (ctx->level != KVM_PGTABLE_MAX_LEVELS - 1))
+		return -EPERM;
 
 	/*
 	 * We may race with the CPU trying to set the access flag here,
@@ -1220,26 +1244,11 @@ static int stage2_update_leaf_attrs(struct kvm_pgtable *pgt, u64 addr,
 	return 0;
 }
 
-int kvm_pgtable_stage2_wrprotect(struct kvm_pgtable *pgt, u64 addr, u64 size)
+int kvm_pgtable_stage2_mkclean(struct kvm_pgtable *pgt, u64 addr, u64 size)
 {
 	return stage2_update_leaf_attrs(pgt, addr, size, 0,
 					KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W,
 					NULL, NULL, 0);
-}
-
-kvm_pte_t kvm_pgtable_stage2_mkyoung(struct kvm_pgtable *pgt, u64 addr)
-{
-	kvm_pte_t pte = 0;
-	int ret;
-
-	ret = stage2_update_leaf_attrs(pgt, addr, 1, KVM_PTE_LEAF_ATTR_LO_S2_AF, 0,
-				       &pte, NULL,
-				       KVM_PGTABLE_WALK_HANDLE_FAULT |
-				       KVM_PGTABLE_WALK_SHARED);
-	if (!ret)
-		dsb(ishst);
-
-	return pte;
 }
 
 struct stage2_age_data {
@@ -1293,7 +1302,8 @@ bool kvm_pgtable_stage2_test_clear_young(struct kvm_pgtable *pgt, u64 addr,
 }
 
 int kvm_pgtable_stage2_relax_perms(struct kvm_pgtable *pgt, u64 addr,
-				   enum kvm_pgtable_prot prot)
+				   enum kvm_pgtable_prot prot,
+				   kvm_pte_t *pte)
 {
 	int ret;
 	u32 level;
@@ -1306,16 +1316,32 @@ int kvm_pgtable_stage2_relax_perms(struct kvm_pgtable *pgt, u64 addr,
 		set |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R;
 
 	if (prot & KVM_PGTABLE_PROT_W)
-		set |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
+		set |= KVM_PTE_LEAF_ATTR_HI_S2_DBM;
 
 	if (prot & KVM_PGTABLE_PROT_X)
 		clr |= KVM_PTE_LEAF_ATTR_HI_S2_XN;
 
-	ret = stage2_update_leaf_attrs(pgt, addr, 1, set, clr, NULL, &level,
+	if (prot & KVM_PGTABLE_PROT_AF)
+		set |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
+
+	if (prot & KVM_PGTABLE_PROT_DIRTY)
+		set |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
+
+	ret = stage2_update_leaf_attrs(pgt, addr, 1, set, clr, pte, &level,
 				       KVM_PGTABLE_WALK_HANDLE_FAULT |
 				       KVM_PGTABLE_WALK_SHARED);
-	if (!ret)
+	if (ret)
+		return ret;
+
+	/*
+	 * Avoid an unnecessary TLB invalidation for updates that only set the
+	 * access flag.
+	 */
+	if (prot == KVM_PGTABLE_PROT_AF)
+		dsb(nshst);
+	else
 		kvm_call_hyp(__kvm_tlb_flush_vmid_ipa_nsh, pgt->mmu, addr, level);
+
 	return ret;
 }
 

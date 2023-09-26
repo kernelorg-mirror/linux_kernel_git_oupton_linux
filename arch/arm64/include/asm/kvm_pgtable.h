@@ -178,8 +178,10 @@ enum kvm_pgtable_prot {
 	KVM_PGTABLE_PROT_X			= BIT(0),
 	KVM_PGTABLE_PROT_W			= BIT(1),
 	KVM_PGTABLE_PROT_R			= BIT(2),
+	KVM_PGTABLE_PROT_AF			= BIT(3),
+	KVM_PGTABLE_PROT_DIRTY			= BIT(4),
 
-	KVM_PGTABLE_PROT_DEVICE			= BIT(3),
+	KVM_PGTABLE_PROT_DEVICE			= BIT(5),
 
 	KVM_PGTABLE_PROT_SW0			= BIT(55),
 	KVM_PGTABLE_PROT_SW1			= BIT(56),
@@ -190,8 +192,8 @@ enum kvm_pgtable_prot {
 #define KVM_PGTABLE_PROT_RW	(KVM_PGTABLE_PROT_R | KVM_PGTABLE_PROT_W)
 #define KVM_PGTABLE_PROT_RWX	(KVM_PGTABLE_PROT_RW | KVM_PGTABLE_PROT_X)
 
-#define PKVM_HOST_MEM_PROT	KVM_PGTABLE_PROT_RWX
-#define PKVM_HOST_MMIO_PROT	KVM_PGTABLE_PROT_RW
+#define PKVM_HOST_MEM_PROT	(KVM_PGTABLE_PROT_RWX | KVM_PGTABLE_PROT_DIRTY)
+#define PKVM_HOST_MMIO_PROT	(KVM_PGTABLE_PROT_RW | KVM_PGTABLE_PROT_DIRTY)
 
 #define PAGE_HYP		KVM_PGTABLE_PROT_RW
 #define PAGE_HYP_EXEC		(KVM_PGTABLE_PROT_R | KVM_PGTABLE_PROT_X)
@@ -576,10 +578,10 @@ int kvm_pgtable_stage2_set_owner(struct kvm_pgtable *pgt, u64 addr, u64 size,
 int kvm_pgtable_stage2_unmap(struct kvm_pgtable *pgt, u64 addr, u64 size);
 
 /**
- * kvm_pgtable_stage2_wrprotect() - Write-protect guest stage-2 address range
- *                                  without TLB invalidation.
+ * kvm_pgtable_stage2_mkclean() - Mark guest stage-2 address range as clean
+ *				  without TLB invalidation.
  * @pgt:	Page-table structure initialised by kvm_pgtable_stage2_init*().
- * @addr:	Intermediate physical address from which to write-protect,
+ * @addr:	Intermediate physical address from which to clean,
  * @size:	Size of the range.
  *
  * The offset of @addr within a page is ignored and @size is rounded-up to
@@ -591,21 +593,7 @@ int kvm_pgtable_stage2_unmap(struct kvm_pgtable *pgt, u64 addr, u64 size);
  *
  * Return: 0 on success, negative error code on failure.
  */
-int kvm_pgtable_stage2_wrprotect(struct kvm_pgtable *pgt, u64 addr, u64 size);
-
-/**
- * kvm_pgtable_stage2_mkyoung() - Set the access flag in a page-table entry.
- * @pgt:	Page-table structure initialised by kvm_pgtable_stage2_init*().
- * @addr:	Intermediate physical address to identify the page-table entry.
- *
- * The offset of @addr within a page is ignored.
- *
- * If there is a valid, leaf page-table entry used to translate @addr, then
- * set the access flag in that entry.
- *
- * Return: The old page-table entry prior to setting the flag, 0 on failure.
- */
-kvm_pte_t kvm_pgtable_stage2_mkyoung(struct kvm_pgtable *pgt, u64 addr);
+int kvm_pgtable_stage2_mkclean(struct kvm_pgtable *pgt, u64 addr, u64 size);
 
 /**
  * kvm_pgtable_stage2_test_clear_young() - Test and optionally clear the access
@@ -635,6 +623,7 @@ bool kvm_pgtable_stage2_test_clear_young(struct kvm_pgtable *pgt, u64 addr,
  * @pgt:	Page-table structure initialised by kvm_pgtable_stage2_init*().
  * @addr:	Intermediate physical address to identify the page-table entry.
  * @prot:	Additional permissions to grant for the mapping.
+ * @pte:	out pointer to return the updated PTE
  *
  * The offset of @addr within a page is ignored.
  *
@@ -647,7 +636,8 @@ bool kvm_pgtable_stage2_test_clear_young(struct kvm_pgtable *pgt, u64 addr,
  * Return: 0 on success, negative error code on failure.
  */
 int kvm_pgtable_stage2_relax_perms(struct kvm_pgtable *pgt, u64 addr,
-				   enum kvm_pgtable_prot prot);
+				   enum kvm_pgtable_prot prot,
+				   kvm_pte_t *pte);
 
 /**
  * kvm_pgtable_stage2_flush_range() - Clean and invalidate data cache to Point

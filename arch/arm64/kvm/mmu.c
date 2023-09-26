@@ -1069,8 +1069,10 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
 	struct kvm_mmu_memory_cache cache = { .gfp_zero = __GFP_ZERO };
 	struct kvm_pgtable *pgt = kvm->arch.mmu.pgt;
 	enum kvm_pgtable_prot prot = KVM_PGTABLE_PROT_DEVICE |
-				     KVM_PGTABLE_PROT_R |
-				     (writable ? KVM_PGTABLE_PROT_W : 0);
+				     KVM_PGTABLE_PROT_R;
+
+	if (writable)
+		prot |= KVM_PGTABLE_PROT_W | KVM_PGTABLE_PROT_DIRTY;
 
 	if (is_protected_kvm_enabled())
 		return -EPERM;
@@ -1099,30 +1101,30 @@ int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
 }
 
 /**
- * stage2_wp_range() - write protect stage2 memory region range
+ * stage2_clean_range() - clean stage2 memory region range
  * @mmu:        The KVM stage-2 MMU pointer
  * @addr:	Start address of range
  * @end:	End address of range
  */
-static void stage2_wp_range(struct kvm_s2_mmu *mmu, phys_addr_t addr, phys_addr_t end)
+static void stage2_clean_range(struct kvm_s2_mmu *mmu, phys_addr_t addr, phys_addr_t end)
 {
-	stage2_apply_range_resched(mmu, addr, end, kvm_pgtable_stage2_wrprotect);
+	stage2_apply_range_resched(mmu, addr, end, kvm_pgtable_stage2_mkclean);
 }
 
 /**
- * kvm_mmu_wp_memory_region() - write protect stage 2 entries for memory slot
+ * kvm_mmu_clean_memory_region() - clean stage 2 entries for memory slot
  * @kvm:	The KVM pointer
  * @slot:	The memory slot to write protect
  *
  * Called to start logging dirty pages after memory region
  * KVM_MEM_LOG_DIRTY_PAGES operation is called. After this function returns
- * all present PUD, PMD and PTEs are write protected in the memory region.
- * Afterwards read of dirty page log can be called.
+ * all present PUD, PMD and PTEs are clean in the memory region. Afterwards
+ * read of dirty page log can be called.
  *
  * Acquires kvm_mmu_lock. Called with kvm->slots_lock mutex acquired,
  * serializing operations for VM memory regions.
  */
-static void kvm_mmu_wp_memory_region(struct kvm *kvm, int slot)
+static void kvm_mmu_clean_memory_region(struct kvm *kvm, int slot)
 {
 	struct kvm_memslots *slots = kvm_memslots(kvm);
 	struct kvm_memory_slot *memslot = id_to_memslot(slots, slot);
@@ -1135,7 +1137,7 @@ static void kvm_mmu_wp_memory_region(struct kvm *kvm, int slot)
 	end = (memslot->base_gfn + memslot->npages) << PAGE_SHIFT;
 
 	write_lock(&kvm->mmu_lock);
-	stage2_wp_range(&kvm->arch.mmu, start, end);
+	stage2_clean_range(&kvm->arch.mmu, start, end);
 	write_unlock(&kvm->mmu_lock);
 	kvm_flush_remote_tlbs_memslot(kvm, memslot);
 }
@@ -1189,7 +1191,7 @@ void kvm_arch_mmu_enable_log_dirty_pt_masked(struct kvm *kvm,
 
 	lockdep_assert_held_write(&kvm->mmu_lock);
 
-	stage2_wp_range(&kvm->arch.mmu, start, end);
+	stage2_clean_range(&kvm->arch.mmu, start, end);
 
 	/*
 	 * Eager-splitting is done when manual-protect is set.  We
@@ -1525,12 +1527,6 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		 * change things at the last minute.
 		 */
 		device = true;
-	} else if (logging_active && !write_fault) {
-		/*
-		 * Only actually map the page as writable if this was a write
-		 * fault.
-		 */
-		writable = false;
 	}
 
 	if (exec_fault && device)
@@ -1570,8 +1566,11 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 		}
 	}
 
-	if (writable)
+	if (writable) {
 		prot |= KVM_PGTABLE_PROT_W;
+		if (write_fault || !logging_active)
+			prot |= KVM_PGTABLE_PROT_DIRTY;
+	}
 
 	if (exec_fault)
 		prot |= KVM_PGTABLE_PROT_X;
@@ -1581,22 +1580,14 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	else if (cpus_have_const_cap(ARM64_HAS_CACHE_DIC))
 		prot |= KVM_PGTABLE_PROT_X;
 
-	/*
-	 * Under the premise of getting a FSC_PERM fault, we just need to relax
-	 * permissions only if vma_pagesize equals fault_granule. Otherwise,
-	 * kvm_pgtable_stage2_map() should be called to change block size.
-	 */
-	if (fault_status == ESR_ELx_FSC_PERM && vma_pagesize == fault_granule)
-		ret = kvm_pgtable_stage2_relax_perms(pgt, fault_ipa, prot);
-	else
-		ret = kvm_pgtable_stage2_map(pgt, fault_ipa, vma_pagesize,
-					     __pfn_to_phys(pfn), prot,
-					     memcache,
-					     KVM_PGTABLE_WALK_HANDLE_FAULT |
-					     KVM_PGTABLE_WALK_SHARED);
+	ret = kvm_pgtable_stage2_map(pgt, fault_ipa, vma_pagesize,
+				     __pfn_to_phys(pfn), prot,
+				     memcache,
+				     KVM_PGTABLE_WALK_HANDLE_FAULT |
+				     KVM_PGTABLE_WALK_SHARED);
 
 	/* Mark the page dirty only if the fault is handled successfully */
-	if (writable && !ret) {
+	if (!ret && (prot & KVM_PGTABLE_PROT_DIRTY)) {
 		kvm_set_pfn_dirty(pfn);
 		mark_page_dirty_in_slot(kvm, memslot, gfn);
 	}
@@ -1607,21 +1598,48 @@ out_unlock:
 	return ret != -EAGAIN ? ret : 0;
 }
 
-/* Resolve the access fault by making the page young again. */
-static void handle_access_fault(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa)
+static bool is_attr_fault(unsigned long fault_status)
 {
+	return fault_status == ESR_ELx_FSC_ACCESS ||
+	       fault_status == ESR_ELx_FSC_PERM;
+}
+
+static int try_handle_attr_fault(struct kvm_vcpu *vcpu,
+				 struct kvm_memory_slot *memslot,
+				 phys_addr_t fault_ipa)
+{
+	unsigned long fault_status = kvm_vcpu_trap_get_fault_type(vcpu);
+	int fault_level = kvm_vcpu_trap_get_fault_level(vcpu);
+	unsigned long fault_granule = BIT(ARM64_HW_PGTABLE_LEVEL_SHIFT(level));
+	bool write_fault = kvm_is_write_fault(vcpu);
+	gfn_t gfn = fault_ipa >> PAGE_SHIFT;
+	enum kvm_pgtable_prot prot;
 	kvm_pte_t pte;
-	struct kvm_s2_mmu *mmu;
+	kvm_pfn_t pfn;
+	int ret;
 
-	trace_kvm_access_fault(fault_ipa);
+	if (fault_status == ESR_ELx_FSC_ACCESS) {
+		trace_kvm_access_fault(fault_ipa);
+		prot = KVM_PGTABLE_PROT_AF;
+	} else if (kvm_vcpu_trap_is_exec_fault(vcpu)) {
+		prot = KVM_PGTABLE_PROT_X;
+	} else if (write_fault && fault_granule == PAGE_SIZE) {
+		prot = KVM_PGTABLE_PROT_DIRTY;
+	} else {
+		return -EPERM;
+	}
 
-	read_lock(&vcpu->kvm->mmu_lock);
-	mmu = vcpu->arch.hw_mmu;
-	pte = kvm_pgtable_stage2_mkyoung(mmu->pgt, fault_ipa);
-	read_unlock(&vcpu->kvm->mmu_lock);
+	ret = kvm_pgtable_stage2_relax_perms(vcpu->arch.hw_mmu->pgt, fault_ipa,
+					     prot, &pte);
+	if (ret)
+		return ret;
 
-	if (kvm_pte_valid(pte))
-		kvm_set_pfn_accessed(kvm_pte_to_pfn(pte));
+	pfn = kvm_pte_to_pfn(pte);
+	kvm_set_pfn_accessed(pfn);
+	if (write_fault)
+		mark_page_dirty_in_slot(vcpu->kvm, memslot, gfn);
+
+	return 1;
 }
 
 /**
@@ -1699,6 +1717,15 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
 
 	gfn = fault_ipa >> PAGE_SHIFT;
 	memslot = gfn_to_memslot(vcpu->kvm, gfn);
+
+	if (is_attr_fault(fault_status)) {
+		ret = try_handle_attr_fault(vcpu, memslot, fault_ipa);
+		if (ret == -EAGAIN)
+			ret = 1;
+		if (ret != -EPERM)
+			goto out;
+	}
+
 	hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
 	write_fault = kvm_is_write_fault(vcpu);
 	if (kvm_is_error_hva(hva) || (write_fault && !writable)) {
@@ -1748,12 +1775,6 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
 
 	/* Userspace should not be able to register out-of-bounds IPAs */
 	VM_BUG_ON(fault_ipa >= kvm_phys_size(vcpu->kvm));
-
-	if (fault_status == ESR_ELx_FSC_ACCESS) {
-		handle_access_fault(vcpu, fault_ipa);
-		ret = 1;
-		goto out_unlock;
-	}
 
 	ret = user_mem_abort(vcpu, fault_ipa, memslot, hva, fault_status);
 	if (ret == 0)
@@ -1991,7 +2012,7 @@ void kvm_arch_commit_memory_region(struct kvm *kvm,
 		 * 2. without initial-all-set: all in one shot when
 		 *    enabling dirty logging.
 		 */
-		kvm_mmu_wp_memory_region(kvm, new->id);
+		kvm_mmu_clean_memory_region(kvm, new->id);
 		kvm_mmu_split_memory_region(kvm, new->id);
 	} else {
 		/*
