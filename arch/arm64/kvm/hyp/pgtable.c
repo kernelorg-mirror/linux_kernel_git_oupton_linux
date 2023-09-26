@@ -1015,6 +1015,15 @@ static int stage2_map_walk_leaf(const struct kvm_pgtable_visit_ctx *ctx,
 	}
 
 	/*
+	 * Clean the D-cache when replacing a block with a table. In cases
+	 * where KVM lazily remaps the affected IPA range, it is possible
+	 * that an intervening unmap walker will fail to clean the
+	 * D-cache for the unmapped gaps.
+	 */
+	if (kvm_pte_valid(ctx->old))
+		stage2_dcache_clean_inval_poc(ctx, ctx->old);
+
+	/*
 	 * If we've run into an existing block mapping then replace it with
 	 * a table. Accesses beyond 'end' that fall within the new table
 	 * will be mapped lazily.
