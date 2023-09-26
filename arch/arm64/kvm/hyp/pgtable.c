@@ -776,6 +776,30 @@ static bool stage2_try_set_pte(const struct kvm_pgtable_visit_ctx *ctx, kvm_pte_
 	return cmpxchg(ctx->ptep, ctx->old, new) == ctx->old;
 }
 
+static void stage2_dcache_clean_inval_poc(const struct kvm_pgtable_visit_ctx *ctx,
+					  kvm_pte_t pte)
+{
+	struct kvm_pgtable_mm_ops *mm_ops = ctx->mm_ops;
+
+	if (kvm_pgtable_walk_skip_cmo(ctx) || !mm_ops->dcache_clean_inval_poc)
+		return;
+
+	mm_ops->dcache_clean_inval_poc(kvm_pte_follow(pte, mm_ops),
+				       kvm_granule_size(ctx->level));
+}
+
+static void stage2_icache_inval_pou(const struct kvm_pgtable_visit_ctx *ctx,
+				    kvm_pte_t pte)
+{
+	struct kvm_pgtable_mm_ops *mm_ops = ctx->mm_ops;
+
+	if (kvm_pgtable_walk_skip_cmo(ctx) || !mm_ops->icache_inval_pou)
+		return;
+
+	mm_ops->icache_inval_pou(kvm_pte_follow(pte, mm_ops),
+				 kvm_granule_size(ctx->level));
+}
+
 /**
  * stage2_try_break_pte() - Invalidates a pte according to the
  *			    'break-before-make' requirements of the
@@ -955,14 +979,10 @@ static int stage2_map_walker_try_leaf(const struct kvm_pgtable_visit_ctx *ctx,
 		return -EAGAIN;
 
 	/* Perform CMOs before installation of the guest stage-2 PTE */
-	if (!kvm_pgtable_walk_skip_cmo(ctx) && mm_ops->dcache_clean_inval_poc &&
-	    stage2_pte_cacheable(pgt, new))
-		mm_ops->dcache_clean_inval_poc(kvm_pte_follow(new, mm_ops),
-					       granule);
-
-	if (!kvm_pgtable_walk_skip_cmo(ctx) && mm_ops->icache_inval_pou &&
-	    stage2_pte_executable(new))
-		mm_ops->icache_inval_pou(kvm_pte_follow(new, mm_ops), granule);
+	if (stage2_pte_cacheable(pgt, new))
+		stage2_dcache_clean_inval_poc(ctx, new);
+	if (stage2_pte_executable(new))
+		stage2_icache_inval_pou(ctx, new);
 
 	stage2_make_pte(ctx, new);
 
@@ -1137,9 +1157,8 @@ static int stage2_unmap_walker(const struct kvm_pgtable_visit_ctx *ctx,
 	 */
 	stage2_unmap_put_pte(ctx, mmu, mm_ops);
 
-	if (need_flush && mm_ops->dcache_clean_inval_poc)
-		mm_ops->dcache_clean_inval_poc(kvm_pte_follow(ctx->old, mm_ops),
-					       kvm_granule_size(ctx->level));
+	if (need_flush)
+		stage2_dcache_clean_inval_poc(ctx, ctx->old);
 
 	if (childp)
 		mm_ops->free_unlinked_table(childp, ctx->level);
@@ -1203,10 +1222,8 @@ static int stage2_attr_walker(const struct kvm_pgtable_visit_ctx *ctx,
 		 * Invalidate instruction cache before updating the guest
 		 * stage-2 PTE if we are going to add executable permission.
 		 */
-		if (mm_ops->icache_inval_pou &&
-		    stage2_pte_executable(pte) && !stage2_pte_executable(ctx->old))
-			mm_ops->icache_inval_pou(kvm_pte_follow(pte, mm_ops),
-						  kvm_granule_size(ctx->level));
+		if (stage2_pte_executable(pte) && !stage2_pte_executable(ctx->old))
+			stage2_icache_inval_pou(ctx, pte);
 
 		if (!stage2_try_set_pte(ctx, pte))
 			return -EAGAIN;
@@ -1354,9 +1371,7 @@ static int stage2_flush_walker(const struct kvm_pgtable_visit_ctx *ctx,
 	if (!kvm_pte_valid(ctx->old) || !stage2_pte_cacheable(pgt, ctx->old))
 		return 0;
 
-	if (mm_ops->dcache_clean_inval_poc)
-		mm_ops->dcache_clean_inval_poc(kvm_pte_follow(ctx->old, mm_ops),
-					       kvm_granule_size(ctx->level));
+	stage2_dcache_clean_inval_pou(ctx, ctx->old);
 	return 0;
 }
 
