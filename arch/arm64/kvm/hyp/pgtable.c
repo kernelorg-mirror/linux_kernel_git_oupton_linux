@@ -183,7 +183,7 @@ static int kvm_pgtable_visitor_cb(struct kvm_pgtable_walk_data *data,
 	return walker->cb(ctx, visit);
 }
 
-static bool kvm_pgtable_walk_continue(const struct kvm_pgtable_walker *walker,
+static bool kvm_pgtable_restart_visit(const struct kvm_pgtable_walker *walker,
 				      int r)
 {
 	/*
@@ -191,15 +191,8 @@ static bool kvm_pgtable_walk_continue(const struct kvm_pgtable_walker *walker,
 	 * fault are no longer reflected in the page tables due to a race to
 	 * update a PTE. In the context of a fault handler this is interpreted
 	 * as a signal to retry guest execution.
-	 *
-	 * Ignore the return code altogether for walkers outside a fault handler
-	 * (e.g. write protecting a range of memory) and chug along with the
-	 * page table walk.
 	 */
-	if (r == -EAGAIN)
-		return !(walker->flags & KVM_PGTABLE_WALK_HANDLE_FAULT);
-
-	return !r;
+	return r == -EAGAIN && !(walker->flags & KVM_PGTABLE_WALK_HANDLE_FAULT);
 }
 
 static int __kvm_pgtable_walk(struct kvm_pgtable_walk_data *data,
@@ -237,6 +230,9 @@ static inline int __kvm_pgtable_visit(struct kvm_pgtable_walk_data *data,
 		reload = true;
 	}
 
+	if (ret)
+		return ret;
+
 	/*
 	 * Reload the page table after invoking the walker callback for leaf
 	 * entries or after pre-order traversal, to allow the walker to descend
@@ -247,9 +243,6 @@ static inline int __kvm_pgtable_visit(struct kvm_pgtable_walk_data *data,
 		table = kvm_pte_table(ctx.old, level);
 	}
 
-	if (!kvm_pgtable_walk_continue(data->walker, ret))
-		goto out;
-
 	if (!table) {
 		data->addr = ALIGN_DOWN(data->addr, kvm_granule_size(level));
 		data->addr += kvm_granule_size(level);
@@ -258,15 +251,11 @@ static inline int __kvm_pgtable_visit(struct kvm_pgtable_walk_data *data,
 
 	childp = (kvm_pteref_t)kvm_pte_follow(ctx.old, mm_ops);
 	ret = __kvm_pgtable_walk(data, mm_ops, childp, level + 1);
-	if (!kvm_pgtable_walk_continue(data->walker, ret))
-		goto out;
+	if (ret)
+		return ret;
 
 	if (ctx.flags & KVM_PGTABLE_WALK_TABLE_POST)
 		ret = kvm_pgtable_visitor_cb(data, &ctx, KVM_PGTABLE_WALK_TABLE_POST);
-
-out:
-	if (kvm_pgtable_walk_continue(data->walker, ret))
-		return 0;
 
 	return ret;
 }
@@ -286,7 +275,10 @@ static int __kvm_pgtable_walk(struct kvm_pgtable_walk_data *data,
 		if (data->addr >= data->end)
 			break;
 
-		ret = __kvm_pgtable_visit(data, mm_ops, pteref, level);
+		do {
+			ret = __kvm_pgtable_visit(data, mm_ops, pteref, level);
+		} while (kvm_pgtable_restart_visit(data->walker, r));
+
 		if (ret)
 			break;
 	}
