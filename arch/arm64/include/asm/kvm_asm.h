@@ -197,6 +197,11 @@ struct kvm_nvhe_stacktrace_info {
 	unsigned long pc;
 };
 
+struct kvm_stage2_ctxt {
+	unsigned long vttbr;
+	unsigned long vtcr;
+};
+
 /* Translate a kernel address @ptr into its equivalent linear mapping */
 #define kvm_ksym_ref(ptr)						\
 	({								\

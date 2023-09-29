@@ -299,8 +299,19 @@ static __always_inline u64 kvm_get_vttbr(struct kvm_s2_mmu *mmu)
 static __always_inline void __load_stage2(struct kvm_s2_mmu *mmu,
 					  struct kvm_arch *arch)
 {
-	write_sysreg(arch->vtcr, vtcr_el2);
-	write_sysreg(kvm_get_vttbr(mmu), vttbr_el2);
+	struct kvm_stage2_ctxt *prev = this_cpu_ptr(&kvm_stage2_ctxt);
+	struct kvm_stage2_ctxt cur = {
+		.vttbr = kvm_get_vttbr(mmu),
+		.vtcr = arch->vtcr,
+	};
+
+	if (cur.vttbr == prev->vttbr && cur.vtcr == prev->vtcr)
+		return;
+
+	*prev = cur;
+
+	write_sysreg(cur.vtcr, vtcr_el2);
+	write_sysreg(cur.vttbr, vttbr_el2);
 
 	/*
 	 * ARM errata 1165522 and 1530923 require the actual execution of the
