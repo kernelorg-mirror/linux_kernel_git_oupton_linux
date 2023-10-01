@@ -17,9 +17,32 @@ struct tlb_inv_context {
 };
 
 static void __tlb_switch_to_guest(struct kvm_s2_mmu *mmu,
-				  struct tlb_inv_context *cxt)
+				  struct tlb_inv_context *cxt,
+				  bool nsh)
 {
 	u64 val;
+
+	/*
+	 * We have two requirements:
+	 *
+	 * - ensure that the page table updates are visible to all
+	 *   CPUs, for which a dsb(DOMAIN-st) is what we need, DOMAIN
+	 *   being either ish or nsh, depending on the invalidation
+	 *   type.
+	 *
+	 * - complete any speculative page table walk started before
+	 *   we trapped to EL2 so that we can mess with the MM
+	 *   registers out of context, for which dsb(nsh) is enough
+	 *
+	 * The composition of these two barriers is a dsb(DOMAIN), and
+	 * the 'nsh' parameter tracks the distinction between
+	 * Inner-Shareable and Non-Shareable, as specified by the
+	 * callers.
+	 */
+	if (nsh)
+		dsb(nsh);
+	else
+		dsb(ish);
 
 	local_irq_save(cxt->flags);
 
@@ -84,10 +107,8 @@ void __kvm_tlb_flush_vmid_ipa(struct kvm_s2_mmu *mmu,
 {
 	struct tlb_inv_context cxt;
 
-	dsb(ishst);
-
 	/* Switch to requested VMID */
-	__tlb_switch_to_guest(mmu, &cxt);
+	__tlb_switch_to_guest(mmu, &cxt, false);
 
 	/*
 	 * We could do so much better if we had the VA as well.
@@ -116,10 +137,8 @@ void __kvm_tlb_flush_vmid_ipa_nsh(struct kvm_s2_mmu *mmu,
 {
 	struct tlb_inv_context cxt;
 
-	dsb(nshst);
-
 	/* Switch to requested VMID */
-	__tlb_switch_to_guest(mmu, &cxt);
+	__tlb_switch_to_guest(mmu, &cxt, true);
 
 	/*
 	 * We could do so much better if we had the VA as well.
@@ -156,10 +175,8 @@ void __kvm_tlb_flush_vmid_range(struct kvm_s2_mmu *mmu,
 	stride = PAGE_SIZE;
 	start = round_down(start, stride);
 
-	dsb(ishst);
-
 	/* Switch to requested VMID */
-	__tlb_switch_to_guest(mmu, &cxt);
+	__tlb_switch_to_guest(mmu, &cxt, false);
 
 	__flush_s2_tlb_range_op(ipas2e1is, start, pages, stride, 0);
 
@@ -175,10 +192,8 @@ void __kvm_tlb_flush_vmid(struct kvm_s2_mmu *mmu)
 {
 	struct tlb_inv_context cxt;
 
-	dsb(ishst);
-
 	/* Switch to requested VMID */
-	__tlb_switch_to_guest(mmu, &cxt);
+	__tlb_switch_to_guest(mmu, &cxt, false);
 
 	__tlbi(vmalls12e1is);
 	dsb(ish);
@@ -192,7 +207,7 @@ void __kvm_flush_cpu_context(struct kvm_s2_mmu *mmu)
 	struct tlb_inv_context cxt;
 
 	/* Switch to requested VMID */
-	__tlb_switch_to_guest(mmu, &cxt);
+	__tlb_switch_to_guest(mmu, &cxt, true);
 
 	__tlbi(vmalle1);
 	asm volatile("ic iallu");
