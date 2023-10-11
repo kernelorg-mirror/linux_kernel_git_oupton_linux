@@ -761,6 +761,13 @@ struct kvm_vcpu_arch {
 				 KVM_GUESTDBG_USE_HW | \
 				 KVM_GUESTDBG_SINGLESTEP)
 
+#define vcpu_has_unsigned_feature(vcpu, reg, field, enum)		\
+({									\
+	u64 __val = IDREG((vcpu)->kvm, SYS_##reg);			\
+	u8 __f_val = SYS_FIELD_GET(reg, field, __val);			\
+	__f_val >= reg##_##field##_##enum;				\
+})
+
 #define vcpu_has_sve(vcpu) (system_supports_sve() &&			\
 			    vcpu_get_flag(vcpu, GUEST_HAS_SVE))
 
