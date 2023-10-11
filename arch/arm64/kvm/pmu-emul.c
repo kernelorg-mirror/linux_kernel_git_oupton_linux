@@ -814,7 +814,9 @@ u64 kvm_pmu_get_pmceid(struct kvm_vcpu *vcpu, bool pmceid1)
 
 u64 kvm_pmu_get_pmmir(struct kvm *kvm)
 {
-	return 0;
+	struct arm_pmu *cpu_pmu = vcpu->kvm->arch.arm_pmu;
+
+	return cpu_pmu->reg_pmmir & ARMV8_PMU_THWIDTH;
 }
 
 int kvm_arm_pmu_v3_enable(struct kvm_vcpu *vcpu)
