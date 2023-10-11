@@ -18,6 +18,8 @@
 #include <asm/arm_pmuv3.h>
 
 #define PERF_ATTR_CFG1_COUNTER_64BIT	BIT(0)
+#define PERF_ATTR_CFG1_TH		GENMASK(13, 2)
+#define PERF_ATTR_CFG1_TC		GENMASK(16, 14)
 
 DEFINE_STATIC_KEY_FALSE(kvm_arm_pmu_available);
 
@@ -600,7 +602,7 @@ static void kvm_pmu_create_perf_event(struct kvm_pmc *pmc)
 	struct arm_pmu *arm_pmu = vcpu->kvm->arch.arm_pmu;
 	struct perf_event *event;
 	struct perf_event_attr attr;
-	u64 eventsel, reg, data;
+	u64 eventsel, reg, data, th, tc;
 	bool p, u, nsk, nsu;
 
 	reg = counter_index_to_evtreg(pmc->idx);
@@ -633,6 +635,9 @@ static void kvm_pmu_create_perf_event(struct kvm_pmc *pmc)
 	nsk = data & ARMV8_PMU_EXCLUDE_NS_EL1;
 	nsu = data & ARMV8_PMU_EXCLUDE_NS_EL0;
 
+	th = FIELD_GET(ARMV8_PMU_EVTYPE_TH, data);
+	tc = FIELD_GET(ARMV8_PMU_EVTYPE_TC, data);
+
 	memset(&attr, 0, sizeof(struct perf_event_attr));
 	attr.type = arm_pmu->pmu.type;
 	attr.size = sizeof(attr);
@@ -643,6 +648,9 @@ static void kvm_pmu_create_perf_event(struct kvm_pmc *pmc)
 	attr.exclude_hv = 1; /* Don't count EL2 events */
 	attr.exclude_host = 1; /* Don't count host events */
 	attr.config = eventsel;
+
+	attr.config1 |= FIELD_PREP(PERF_ATTR_CFG1_TH, th);
+	attr.config1 |= FIELD_PREP(PERF_ATTR_CFG1_TC, tc);
 
 	/*
 	 * If counting with a 64bit counter, advertise it to the perf
