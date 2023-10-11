@@ -63,9 +63,18 @@ static u32 kvm_pmu_event_mask(struct kvm *kvm)
 
 u64 kvm_pmu_evtyper_mask(struct kvm *kvm)
 {
-	return ARMV8_PMU_EXCLUDE_EL1 | ARMV8_PMU_EXCLUDE_EL0 |
+	u64 th_width = FIELD_GET(ARMV8_PMU_THWIDTH, kvm_pmu_get_pmmir(kvm));
+	u64 mask;
+
+	mask = ARMV8_PMU_EXCLUDE_EL1 | ARMV8_PMU_EXCLUDE_EL0 |
 	       ARMV8_PMU_EXCLUDE_NS_EL1 | ARMV8_PMU_EXCLUDE_NS_EL0 |
 	       kvm_pmu_event_mask(kvm);
+
+	if (th_width)
+		mask |= FIELD_PREP(ARMV8_PMU_EVTYPE_TH, BIT(th_width) - 1) |
+			ARMV8_PMU_EVTYPE_TC;
+
+	return mask;
 }
 
 /**
