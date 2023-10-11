@@ -50,6 +50,7 @@ u64 kvm_pmu_get_counter_value(struct kvm_vcpu *vcpu, u64 select_idx);
 void kvm_pmu_set_counter_value(struct kvm_vcpu *vcpu, u64 select_idx, u64 val);
 u64 kvm_pmu_valid_counter_mask(struct kvm_vcpu *vcpu);
 u64 kvm_pmu_get_pmceid(struct kvm_vcpu *vcpu, bool pmceid1);
+u64 kvm_pmu_get_pmmir(stuct kvm *kvm);
 void kvm_pmu_vcpu_init(struct kvm_vcpu *vcpu);
 void kvm_pmu_vcpu_reset(struct kvm_vcpu *vcpu);
 void kvm_pmu_vcpu_destroy(struct kvm_vcpu *vcpu);
@@ -89,6 +90,9 @@ void kvm_vcpu_pmu_resync_el0(void);
 		if (!has_vhe() && kvm_vcpu_has_pmu(vcpu))		\
 			vcpu->arch.pmu.events = *kvm_get_pmu_events();	\
 	} while (0)
+
+#define kvm_pmu_is_3p4(vcpu)						\
+	vcpu_has_unsigned_feature(vcpu, ID_AA64DFR0_EL1, PMUVer, V3P4)
 
 /*
  * Evaluates as true when emulating PMUv3p5, and false otherwise.
@@ -156,6 +160,10 @@ static inline int kvm_arm_pmu_v3_enable(struct kvm_vcpu *vcpu)
 	return 0;
 }
 static inline u64 kvm_pmu_get_pmceid(struct kvm_vcpu *vcpu, bool pmceid1)
+{
+	return 0;
+}
+static inline u64 kvm_pmu_get_pmmir(struct kvm *kvm)
 {
 	return 0;
 }

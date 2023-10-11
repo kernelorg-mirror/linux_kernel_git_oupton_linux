@@ -1047,6 +1047,19 @@ static bool access_pminten(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
 	return true;
 }
 
+static bool access_pmmir(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			 const struct sys_reg_desc *r)
+{
+	if (p->is_write)
+		return write_to_read_only(vcpu, p, r);
+
+	if (!kvm_pmu_is_3p4(vcpu))
+		return false;
+
+	p->regval = kvm_pmu_get_pmmir(vcpu->kvm);
+	return true;
+}
+
 static bool access_pmovs(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
 			 const struct sys_reg_desc *r)
 {
@@ -2120,7 +2133,7 @@ static const struct sys_reg_desc sys_reg_descs[] = {
 	  .access = access_pminten, .reg = PMINTENSET_EL1 },
 	{ PMU_SYS_REG(PMINTENCLR_EL1),
 	  .access = access_pminten, .reg = PMINTENSET_EL1 },
-	{ SYS_DESC(SYS_PMMIR_EL1), trap_raz_wi },
+	{ SYS_DESC(SYS_PMMIR_EL1), access_pmmir },
 
 	{ SYS_DESC(SYS_MAIR_EL1), access_vm_reg, reset_unknown, MAIR_EL1 },
 	{ SYS_DESC(SYS_PIRE0_EL1), access_vm_reg, reset_unknown, PIRE0_EL1 },

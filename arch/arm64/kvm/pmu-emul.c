@@ -795,6 +795,11 @@ u64 kvm_pmu_get_pmceid(struct kvm_vcpu *vcpu, bool pmceid1)
 	return val & mask;
 }
 
+u64 kvm_pmu_get_pmmir(struct kvm *kvm)
+{
+	return 0;
+}
+
 int kvm_arm_pmu_v3_enable(struct kvm_vcpu *vcpu)
 {
 	if (!kvm_vcpu_has_pmu(vcpu))
