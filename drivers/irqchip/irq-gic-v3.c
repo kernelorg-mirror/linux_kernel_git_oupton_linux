@@ -2000,11 +2000,18 @@ static int __init gic_init_bases(phys_addr_t dist_phys_base,
 				 u64 redist_stride,
 				 struct fwnode_handle *handle)
 {
-	u32 typer;
+	u32 typer, iidr;
 	int err;
 
 	if (!is_hyp_mode_available())
 		static_branch_disable(&supports_deactivate_key);
+
+	iidr = readl_relaxed(gic_data.dist_base + GICD_IIDR);
+	pr_info("Implementer: %x, Product: %x, Version: r%up%u\n",
+		FIELD_GET(GICD_IIDR_IMPLEMENTER_MASK, iidr),
+		FIELD_GET(GICD_IIDR_PRODUCT_ID_MASK, iidr),
+		FIELD_GET(GICD_IIDR_VARIANT_MASK, iidr),
+		FIELD_GET(GICD_IIDR_REVISION_MASK, iidr));
 
 	if (static_branch_likely(&supports_deactivate_key))
 		pr_info("GIC: Using split EOI/Deactivate mode\n");
