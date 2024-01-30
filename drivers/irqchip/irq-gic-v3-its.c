@@ -4842,6 +4842,13 @@ static void its_enable_quirks(struct its_node *its)
 {
 	u32 iidr = readl_relaxed(its->base + GITS_IIDR);
 
+	pr_info("ITS@%pa: Implementer: %x, Product: %x, Version: r%up%u\n",
+		&its->phys_base,
+		FIELD_GET(GITS_IIDR_IMPLEMENTER_MASK, iidr),
+		FIELD_GET(GITS_IIDR_PRODUCTID_MASK, iidr),
+		FIELD_GET(GITS_IIDR_VAR_MASK, iidr),
+		FIELD_GET(GITS_IIDR_REV_MASK, iidr));
+
 	gic_enable_quirks(iidr, its_quirks, its);
 
 	if (is_of_node(its->fwnode_handle))
