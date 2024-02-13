@@ -535,35 +535,17 @@ static unsigned long vgic_its_cache_key(u32 devid, u32 eventid)
 	return (((unsigned long)devid) << 32) | eventid;
 }
 
-static struct vgic_irq *__vgic_its_check_cache(struct vgic_dist *dist,
-					       phys_addr_t db,
+static struct vgic_irq *__vgic_its_check_cache(struct kvm *kvm, phys_addr_t db,
 					       u32 devid, u32 eventid)
 {
-	struct vgic_translation_cache_entry *cte;
+	unsigned long cache_key = vgic_its_cache_key(devid, eventid);
+	struct vgic_its *its;
 
-	list_for_each_entry(cte, &dist->lpi_translation_cache, entry) {
-		/*
-		 * If we hit a NULL entry, there is nothing after this
-		 * point.
-		 */
-		if (!cte->irq)
-			break;
+	its = __vgic_doorbell_to_its(kvm, db);
+	if (IS_ERR(its))
+		return NULL;
 
-		if (cte->db != db || cte->devid != devid ||
-		    cte->eventid != eventid)
-			continue;
-
-		/*
-		 * Move this entry to the head, as it is the most
-		 * recently used.
-		 */
-		if (!list_is_first(&cte->entry, &dist->lpi_translation_cache))
-			list_move(&cte->entry, &dist->lpi_translation_cache);
-
-		return cte->irq;
-	}
-
-	return NULL;
+	return xa_load(&its->translation_cache, cache_key);
 }
 
 static struct vgic_irq *vgic_its_check_cache(struct kvm *kvm, phys_addr_t db,
@@ -574,11 +556,13 @@ static struct vgic_irq *vgic_its_check_cache(struct kvm *kvm, phys_addr_t db,
 	unsigned long flags;
 
 	raw_spin_lock_irqsave(&dist->lpi_list_lock, flags);
+	rcu_read_lock();
 
-	irq = __vgic_its_check_cache(dist, db, devid, eventid);
+	irq = __vgic_its_check_cache(kvm, db, devid, eventid);
 	if (!vgic_try_get_irq_kref(irq))
 		irq = NULL;
 
+	rcu_read_unlock();
 	raw_spin_unlock_irqrestore(&dist->lpi_list_lock, flags);
 
 	return irq;
@@ -602,6 +586,7 @@ static void vgic_its_cache_translation(struct kvm *kvm, struct vgic_its *its,
 		return;
 
 	raw_spin_lock_irqsave(&dist->lpi_list_lock, flags);
+	rcu_read_lock();
 
 	if (unlikely(list_empty(&dist->lpi_translation_cache)))
 		goto out;
@@ -612,7 +597,7 @@ static void vgic_its_cache_translation(struct kvm *kvm, struct vgic_its *its,
 	 * already
 	 */
 	db = its->vgic_its_base + GITS_TRANSLATER;
-	if (__vgic_its_check_cache(dist, db, devid, eventid))
+	if (__vgic_its_check_cache(kvm, db, devid, eventid))
 		goto out;
 
 	/* Always reuse the last entry (LRU policy) */
@@ -649,6 +634,7 @@ static void vgic_its_cache_translation(struct kvm *kvm, struct vgic_its *its,
 
 	xa_store(&its->translation_cache, cache_key, irq, 0);
 out:
+	rcu_read_unlock();
 	raw_spin_unlock_irqrestore(&dist->lpi_list_lock, flags);
 }
 
