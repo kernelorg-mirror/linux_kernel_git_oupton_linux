@@ -69,7 +69,7 @@ static struct vgic_irq *vgic_add_lpi(struct kvm *kvm, u32 intid,
 	irq->target_vcpu = vcpu;
 	irq->group = 1;
 
-	raw_spin_lock_irqsave(&dist->lpi_list_lock, flags);
+	xa_lock_irqsave(&dist->lpi_xa, flags);
 
 	/*
 	 * There could be a race with another vgic_add_lpi(), so we need to
@@ -84,14 +84,14 @@ static struct vgic_irq *vgic_add_lpi(struct kvm *kvm, u32 intid,
 		goto out_unlock;
 	}
 
-	ret = xa_err(xa_store(&dist->lpi_xa, intid, irq, 0));
+	ret = xa_err(__xa_store(&dist->lpi_xa, intid, irq, 0));
 	if (ret) {
 		xa_release(&dist->lpi_xa, intid);
 		kfree(irq);
 	}
 
 out_unlock:
-	raw_spin_unlock_irqrestore(&dist->lpi_list_lock, flags);
+	xa_unlock_irqrestore(&dist->lpi_xa, flags);
 
 	if (ret)
 		return ERR_PTR(ret);
@@ -543,11 +543,8 @@ static struct vgic_irq *__vgic_its_check_cache(struct kvm *kvm, phys_addr_t db,
 static struct vgic_irq *vgic_its_check_cache(struct kvm *kvm, phys_addr_t db,
 					     u32 devid, u32 eventid)
 {
-	struct vgic_dist *dist = &kvm->arch.vgic;
 	struct vgic_irq *irq;
-	unsigned long flags;
 
-	raw_spin_lock_irqsave(&dist->lpi_list_lock, flags);
 	rcu_read_lock();
 
 	irq = __vgic_its_check_cache(kvm, db, devid, eventid);
@@ -555,7 +552,6 @@ static struct vgic_irq *vgic_its_check_cache(struct kvm *kvm, phys_addr_t db,
 		irq = NULL;
 
 	rcu_read_unlock();
-	raw_spin_unlock_irqrestore(&dist->lpi_list_lock, flags);
 
 	return irq;
 }
@@ -565,7 +561,6 @@ static void vgic_its_cache_translation(struct kvm *kvm, struct vgic_its *its,
 				       struct vgic_irq *irq)
 {
 	unsigned long cache_key = vgic_its_cache_key(devid, eventid);
-	struct vgic_dist *dist = &kvm->arch.vgic;
 	unsigned long flags;
 	phys_addr_t db;
 
@@ -576,7 +571,7 @@ static void vgic_its_cache_translation(struct kvm *kvm, struct vgic_its *its,
 	if (xa_reserve_irq(&its->translation_cache, cache_key, GFP_KERNEL_ACCOUNT))
 		return;
 
-	raw_spin_lock_irqsave(&dist->lpi_list_lock, flags);
+	xa_lock_irqsave(&its->translation_cache, flags);
 	rcu_read_lock();
 
 	/*
@@ -595,10 +590,10 @@ static void vgic_its_cache_translation(struct kvm *kvm, struct vgic_its *its,
 	lockdep_assert_held(&its->its_lock);
 	vgic_get_irq_kref(irq);
 
-	xa_store(&its->translation_cache, cache_key, irq, 0);
+	__xa_store(&its->translation_cache, cache_key, irq, 0);
 out:
 	rcu_read_unlock();
-	raw_spin_unlock_irqrestore(&dist->lpi_list_lock, flags);
+	xa_unlock_irqrestore(&its->translation_cache, flags);
 }
 
 static void vgic_its_invalidate_cache(struct vgic_its *its)
