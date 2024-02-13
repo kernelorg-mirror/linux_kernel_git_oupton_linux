@@ -149,14 +149,6 @@ struct its_ite {
 	u32 event_id;
 };
 
-struct vgic_translation_cache_entry {
-	struct list_head	entry;
-	phys_addr_t		db;
-	u32			devid;
-	u32			eventid;
-	struct vgic_irq		*irq;
-};
-
 /**
  * struct vgic_its_abi - ITS abi ops and settings
  * @cte_esz: collection table entry size
@@ -574,7 +566,6 @@ static void vgic_its_cache_translation(struct kvm *kvm, struct vgic_its *its,
 {
 	unsigned long cache_key = vgic_its_cache_key(devid, eventid);
 	struct vgic_dist *dist = &kvm->arch.vgic;
-	struct vgic_translation_cache_entry *cte;
 	unsigned long flags;
 	phys_addr_t db;
 
@@ -588,9 +579,6 @@ static void vgic_its_cache_translation(struct kvm *kvm, struct vgic_its *its,
 	raw_spin_lock_irqsave(&dist->lpi_list_lock, flags);
 	rcu_read_lock();
 
-	if (unlikely(list_empty(&dist->lpi_translation_cache)))
-		goto out;
-
 	/*
 	 * We could have raced with another CPU caching the same
 	 * translation behind our back, so let's check it is not in
@@ -600,37 +588,12 @@ static void vgic_its_cache_translation(struct kvm *kvm, struct vgic_its *its,
 	if (__vgic_its_check_cache(kvm, db, devid, eventid))
 		goto out;
 
-	/* Always reuse the last entry (LRU policy) */
-	cte = list_last_entry(&dist->lpi_translation_cache,
-			      typeof(*cte), entry);
-
-	/*
-	 * Caching the translation implies having an extra reference
-	 * to the interrupt, so drop the potential reference on what
-	 * was in the cache, and increment it on the new interrupt.
-	 */
-	if (cte->irq)
-		vgic_put_irq(kvm, cte->irq);
-
 	/*
 	 * The irq refcount is guaranteed to be nonzero while holding the
 	 * its_lock, as the ITE (and the reference it holds) cannot be freed.
 	 */
 	lockdep_assert_held(&its->its_lock);
 	vgic_get_irq_kref(irq);
-	/*
-	 * Get a second ref for the ITS' translation cache. This will
-	 * disappear.
-	 */
-	vgic_get_irq_kref(irq);
-
-	cte->db		= db;
-	cte->devid	= devid;
-	cte->eventid	= eventid;
-	cte->irq	= irq;
-
-	/* Move the new translation to the head of the list */
-	list_move(&cte->entry, &dist->lpi_translation_cache);
 
 	xa_store(&its->translation_cache, cache_key, irq, 0);
 out:
@@ -640,26 +603,8 @@ out:
 
 static void vgic_its_invalidate_cache(struct vgic_its *its)
 {
-	struct vgic_dist *dist = &kvm->arch.vgic;
-	struct vgic_translation_cache_entry *cte;
-	unsigned long flags, idx;
+	unsigned long idx;
 	struct vgic_irq *irq;
-
-	raw_spin_lock_irqsave(&dist->lpi_list_lock, flags);
-
-	list_for_each_entry(cte, &dist->lpi_translation_cache, entry) {
-		/*
-		 * If we hit a NULL entry, there is nothing after this
-		 * point.
-		 */
-		if (!cte->irq)
-			break;
-
-		vgic_put_irq(kvm, cte->irq);
-		cte->irq = NULL;
-	}
-
-	raw_spin_unlock_irqrestore(&dist->lpi_list_lock, flags);
 
 	xa_for_each(&its->translation_cache, idx, irq) {
 		xa_erase(&its->translation_cache, idx);
@@ -1882,47 +1827,6 @@ out:
 	return ret;
 }
 
-/* Default is 16 cached LPIs per vcpu */
-#define LPI_DEFAULT_PCPU_CACHE_SIZE	16
-
-void vgic_lpi_translation_cache_init(struct kvm *kvm)
-{
-	struct vgic_dist *dist = &kvm->arch.vgic;
-	unsigned int sz;
-	int i;
-
-	if (!list_empty(&dist->lpi_translation_cache))
-		return;
-
-	sz = atomic_read(&kvm->online_vcpus) * LPI_DEFAULT_PCPU_CACHE_SIZE;
-
-	for (i = 0; i < sz; i++) {
-		struct vgic_translation_cache_entry *cte;
-
-		/* An allocation failure is not fatal */
-		cte = kzalloc(sizeof(*cte), GFP_KERNEL_ACCOUNT);
-		if (WARN_ON(!cte))
-			break;
-
-		INIT_LIST_HEAD(&cte->entry);
-		list_add(&cte->entry, &dist->lpi_translation_cache);
-	}
-}
-
-void vgic_lpi_translation_cache_destroy(struct kvm *kvm)
-{
-	struct vgic_dist *dist = &kvm->arch.vgic;
-	struct vgic_translation_cache_entry *cte, *tmp;
-
-	vgic_its_invalidate_all_caches(kvm);
-
-	list_for_each_entry_safe(cte, tmp,
-				 &dist->lpi_translation_cache, entry) {
-		list_del(&cte->entry);
-		kfree(cte);
-	}
-}
-
 #define INITIAL_BASER_VALUE						  \
 	(GIC_BASER_CACHEABILITY(GITS_BASER, INNER, RaWb)		| \
 	 GIC_BASER_CACHEABILITY(GITS_BASER, OUTER, SameAsInner)		| \
@@ -1955,8 +1859,6 @@ static int vgic_its_create(struct kvm_device *dev, u32 type)
 			kfree(its);
 			return ret;
 		}
-
-		vgic_lpi_translation_cache_init(dev->kvm);
 	}
 
 	mutex_init(&its->its_lock);
