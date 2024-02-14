@@ -467,7 +467,17 @@ static int its_sync_lpi_pending_table(struct kvm_vcpu *vcpu)
 			last_byte_offset = byte_offset;
 		}
 
+		/*
+		 * Another vCPU could've instructed the ITS to DISCARD this LPI
+		 * after vgic_copy_lpi_list() drops the lpi_list_lock. However,
+		 * if that is the case the redistributor is expected to discard
+		 * any pending state for the LPI so we can safely ignore it
+		 * here.
+		 */
 		irq = vgic_get_irq(vcpu->kvm, NULL, intids[i]);
+		if (!irq)
+			continue;
+
 		raw_spin_lock_irqsave(&irq->irq_lock, flags);
 		irq->pending_latch = pendmask & (1U << bit_nr);
 		vgic_queue_irq_unlock(vcpu->kvm, irq, flags);
