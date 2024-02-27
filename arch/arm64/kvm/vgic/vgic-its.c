@@ -426,59 +426,6 @@ static u32 max_lpis_propbaser(u64 propbaser)
 	return 1U << min(nr_idbits, INTERRUPT_ID_BITS_ITS);
 }
 
-/*
- * Sync the pending table pending bit of LPIs targeting @vcpu
- * with our own data structures. This relies on the LPI being
- * mapped before.
- */
-static int its_sync_lpi_pending_table(struct kvm_vcpu *vcpu)
-{
-	gpa_t pendbase = GICR_PENDBASER_ADDRESS(vcpu->arch.vgic_cpu.pendbaser);
-	struct vgic_irq *irq;
-	int last_byte_offset = -1;
-	int ret = 0;
-	u32 *intids;
-	int nr_irqs, i;
-	unsigned long flags;
-	u8 pendmask;
-
-	nr_irqs = vgic_copy_lpi_list(vcpu->kvm, vcpu, &intids);
-	if (nr_irqs < 0)
-		return nr_irqs;
-
-	for (i = 0; i < nr_irqs; i++) {
-		int byte_offset, bit_nr;
-
-		byte_offset = intids[i] / BITS_PER_BYTE;
-		bit_nr = intids[i] % BITS_PER_BYTE;
-
-		/*
-		 * For contiguously allocated LPIs chances are we just read
-		 * this very same byte in the last iteration. Reuse that.
-		 */
-		if (byte_offset != last_byte_offset) {
-			ret = kvm_read_guest_lock(vcpu->kvm,
-						  pendbase + byte_offset,
-						  &pendmask, 1);
-			if (ret) {
-				kfree(intids);
-				return ret;
-			}
-			last_byte_offset = byte_offset;
-		}
-
-		irq = vgic_get_irq(vcpu->kvm, NULL, intids[i]);
-		raw_spin_lock_irqsave(&irq->irq_lock, flags);
-		irq->pending_latch = pendmask & (1U << bit_nr);
-		vgic_queue_irq_unlock(vcpu->kvm, irq, flags);
-		vgic_put_irq(vcpu->kvm, irq);
-	}
-
-	kfree(intids);
-
-	return ret;
-}
-
 static unsigned long vgic_mmio_read_its_typer(struct kvm *kvm,
 					      struct vgic_its *its,
 					      gpa_t addr, unsigned int len)
@@ -1856,13 +1803,6 @@ static struct vgic_register_region its_registers[] = {
 		vgic_mmio_read_its_idregs, its_mmio_write_wi, 0x30,
 		VGIC_ACCESS_32bit),
 };
-
-/* This is called on setting the LPI enable bit in the redistributor. */
-void vgic_enable_lpis(struct kvm_vcpu *vcpu)
-{
-	if (!(vcpu->arch.vgic_cpu.pendbaser & GICR_PENDBASER_PTZ))
-		its_sync_lpi_pending_table(vcpu);
-}
 
 static int vgic_register_its_iodev(struct kvm *kvm, struct vgic_its *its,
 				   u64 addr)

@@ -280,12 +280,8 @@ static void vgic_mmio_write_v3r_ctlr(struct kvm_vcpu *vcpu,
 		vgic_its_invalidate_cache(vcpu->kvm);
 		atomic_set_release(&vgic_cpu->ctlr, 0);
 	} else {
-		ctlr = atomic_cmpxchg_acquire(&vgic_cpu->ctlr, 0,
-					      GICR_CTLR_ENABLE_LPIS);
-		if (ctlr != 0)
-			return;
-
-		vgic_enable_lpis(vcpu);
+		atomic_cmpxchg_acquire(&vgic_cpu->ctlr, 0,
+				       GICR_CTLR_ENABLE_LPIS);
 	}
 }
 
