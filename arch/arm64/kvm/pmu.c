@@ -181,14 +181,12 @@ void kvm_vcpu_pmu_restore_guest(struct kvm_vcpu *vcpu)
 	if (!kvm_arm_support_pmu_v3() || !has_vhe())
 		return;
 
-	preempt_disable();
 	pmu = kvm_get_pmu_events();
 	events_guest = pmu->events_guest;
 	events_host = pmu->events_host;
 
 	kvm_vcpu_pmu_enable_el0(events_guest);
 	kvm_vcpu_pmu_disable_el0(events_host);
-	preempt_enable();
 }
 
 /*
