@@ -36,6 +36,8 @@
 #include "physical_location.h"
 #include "power/power.h"
 
+#define get_dev_from_fwnode(fwnode)	get_device((fwnode)->dev)
+
 /* Device links support. */
 static LIST_HEAD(deferred_sync);
 static unsigned int defer_sync_state_count = 1;
@@ -191,6 +193,33 @@ void fw_devlink_purge_absent_suppliers(struct fwnode_handle *fwnode)
 		fw_devlink_purge_absent_suppliers(child);
 }
 EXPORT_SYMBOL_GPL(fw_devlink_purge_absent_suppliers);
+
+/**
+ * fw_devlink_count_absent_consumers - Return how many consumers have
+ * either not been created yet, or do not yet have a driver attached.
+ * @fwnode: fwnode of the supplier
+ */
+int fw_devlink_count_absent_consumers(struct fwnode_handle *fwnode)
+{
+	struct fwnode_link *link, *tmp;
+	struct device_link *dlink, *dtmp;
+	struct device *sup_dev = get_dev_from_fwnode(fwnode);
+	int count = 0;
+
+	list_for_each_entry_safe(link, tmp, &fwnode->consumers, s_hook)
+		count++;
+
+	if (!sup_dev)
+		return count;
+
+	list_for_each_entry_safe(dlink, dtmp, &sup_dev->links.consumers, s_node)
+		if (dlink->consumer->links.status != DL_DEV_DRIVER_BOUND)
+			count++;
+
+	return count;
+}
+EXPORT_SYMBOL_GPL(fw_devlink_count_absent_consumers);
+
 
 /**
  * __fwnode_links_move_consumers - Move consumer from @from to @to fwnode_handle
@@ -1887,8 +1916,6 @@ static void fw_devlink_unblock_consumers(struct device *dev)
 		fw_devlink_relax_link(link);
 	device_links_write_unlock();
 }
-
-#define get_dev_from_fwnode(fwnode)	get_device((fwnode)->dev)
 
 static bool fwnode_init_without_drv(struct fwnode_handle *fwnode)
 {
