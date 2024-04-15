@@ -484,7 +484,7 @@ int kvm_vgic_v4_set_forwarding(struct kvm *kvm, int virq,
 
 out:
 	mutex_unlock(&its->its_lock);
-	return ret;
+	return 0;
 }
 
 int kvm_vgic_v4_unset_forwarding(struct kvm *kvm, int virq,
