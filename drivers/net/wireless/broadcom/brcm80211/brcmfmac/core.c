@@ -326,9 +326,11 @@ static netdev_tx_t brcmf_netdev_start_xmit(struct sk_buff *skb,
 	/* Make sure there's enough writeable headroom */
 	if (skb_headroom(skb) < drvr->hdrlen || skb_header_cloned(skb)) {
 		head_delta = max_t(int, drvr->hdrlen - skb_headroom(skb), 0);
-
-		brcmf_dbg(INFO, "%s: insufficient headroom (%d)\n",
-			  brcmf_ifname(ifp), head_delta);
+		/* Don't warn unless we actually ran out of headroom vs
+		   had to clone.*/
+		if (head_delta != 0)
+			brcmf_dbg(INFO, "%s: insufficient headroom (%d)\n",
+				  brcmf_ifname(ifp), head_delta);
 		atomic_inc(&drvr->bus_if->stats.pktcowed);
 		ret = pskb_expand_head(skb, ALIGN(head_delta, NET_SKB_PAD), 0,
 				       GFP_ATOMIC);
@@ -1218,7 +1220,14 @@ static int brcmf_bus_started(struct brcmf_pub *drvr, struct cfg80211_ops *ops)
 	if (ret < 0)
 		goto fail;
 
-	brcmf_feat_attach(drvr);
+	ret = brcmf_feat_attach(drvr);
+	if (ret)
+		goto fail;
+
+	/* Setup event_msgs, enable E_IF */
+	ret = brcmf_fweh_init_events(ifp);
+	if (ret)
+		goto fail;
 
 	ret = brcmf_proto_init_done(drvr);
 	if (ret < 0)
@@ -1348,16 +1357,12 @@ int brcmf_attach(struct device *dev)
 		goto fail;
 	}
 
-	/* attach firmware event handler */
-	ret = brcmf_fweh_attach(drvr);
-	if (ret != 0) {
-		bphy_err(drvr, "brcmf_fweh_attach failed\n");
-		goto fail;
-	}
-
 	/* Attach to events important for core code */
 	brcmf_fweh_register(drvr, BRCMF_E_PSM_WATCHDOG,
 			    brcmf_psm_watchdog_notify);
+
+	/* attach firmware event handler */
+	brcmf_fweh_attach(drvr);
 
 	ret = brcmf_bus_started(drvr, drvr->ops);
 	if (ret != 0) {

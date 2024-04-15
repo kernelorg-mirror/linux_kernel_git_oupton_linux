@@ -123,8 +123,11 @@ static int snd_ctl_release(struct inode *inode, struct file *file)
 	scoped_guard(rwsem_write, &card->controls_rwsem) {
 		list_for_each_entry(control, &card->controls, list)
 			for (idx = 0; idx < control->count; idx++)
-				if (control->vd[idx].owner == ctl)
+				if (control->vd[idx].owner == ctl) {
 					control->vd[idx].owner = NULL;
+					if (control->unlock)
+						control->unlock(control);
+				}
 	}
 
 	snd_fasync_free(ctl->fasync);
@@ -303,6 +306,8 @@ struct snd_kcontrol *snd_ctl_new1(const struct snd_kcontrol_new *ncontrol,
 	kctl->info = ncontrol->info;
 	kctl->get = ncontrol->get;
 	kctl->put = ncontrol->put;
+	kctl->lock = ncontrol->lock;
+	kctl->unlock = ncontrol->unlock;
 	kctl->tlv.p = ncontrol->tlv.p;
 
 	kctl->private_value = ncontrol->private_value;
@@ -1374,18 +1379,27 @@ static int snd_ctl_elem_lock(struct snd_ctl_file *file,
 	struct snd_ctl_elem_id id;
 	struct snd_kcontrol *kctl;
 	struct snd_kcontrol_volatile *vd;
+	int result;
 
 	if (copy_from_user(&id, _id, sizeof(id)))
 		return -EFAULT;
 	guard(rwsem_write)(&card->controls_rwsem);
 	kctl = snd_ctl_find_id_locked(card, &id);
-	if (!kctl)
-		return -ENOENT;
-	vd = &kctl->vd[snd_ctl_get_ioff(kctl, &id)];
-	if (vd->owner)
-		return -EBUSY;
-	vd->owner = file;
-	return 0;
+	if (kctl == NULL) {
+		result = -ENOENT;
+	} else {
+		vd = &kctl->vd[snd_ctl_get_ioff(kctl, &id)];
+		if (vd->owner != NULL)
+			result = -EBUSY;
+		else {
+			result = 0;
+			if (kctl->lock)
+				result = kctl->lock(kctl, file);
+			if (result >= 0)
+				vd->owner = file;
+		}
+	}
+	return result;
 }
 
 static int snd_ctl_elem_unlock(struct snd_ctl_file *file,
@@ -1395,20 +1409,28 @@ static int snd_ctl_elem_unlock(struct snd_ctl_file *file,
 	struct snd_ctl_elem_id id;
 	struct snd_kcontrol *kctl;
 	struct snd_kcontrol_volatile *vd;
+	int result;
 
 	if (copy_from_user(&id, _id, sizeof(id)))
 		return -EFAULT;
 	guard(rwsem_write)(&card->controls_rwsem);
 	kctl = snd_ctl_find_id_locked(card, &id);
-	if (!kctl)
-		return -ENOENT;
-	vd = &kctl->vd[snd_ctl_get_ioff(kctl, &id)];
-	if (!vd->owner)
-		return -EINVAL;
-	if (vd->owner != file)
-		return -EPERM;
-	vd->owner = NULL;
-	return 0;
+	if (kctl == NULL) {
+		result = -ENOENT;
+	} else {
+		vd = &kctl->vd[snd_ctl_get_ioff(kctl, &id)];
+		if (vd->owner == NULL)
+			result = -EINVAL;
+		else if (vd->owner != file)
+			result = -EPERM;
+		else {
+			vd->owner = NULL;
+			if (kctl->unlock)
+				kctl->unlock(kctl);
+			result = 0;
+		}
+	}
+	return result;
 }
 
 struct user_element {
