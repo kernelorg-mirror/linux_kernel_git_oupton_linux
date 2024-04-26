@@ -18,10 +18,20 @@ struct tlb_inv_context {
 };
 
 static void enter_vmid_context(struct kvm_s2_mmu *mmu,
-			       struct tlb_inv_context *cxt)
+			       struct tlb_inv_context *cxt,
+			       bool nsh)
 {
 	struct kvm_vcpu *vcpu = kvm_get_running_vcpu();
 	u64 val;
+
+	/*
+	 * Ensure the page table updates are visible to all CPUs within a
+	 * particular DOMAIN, where dsb(DOMAIN-st) is sufficient.
+	 */
+	if (nsh)
+		dsb(nshst);
+	else
+		dsb(ishst);
 
 	local_irq_save(cxt->flags);
 
@@ -94,10 +104,8 @@ void __kvm_tlb_flush_vmid_ipa(struct kvm_s2_mmu *mmu,
 {
 	struct tlb_inv_context cxt;
 
-	dsb(ishst);
-
 	/* Switch to requested VMID */
-	enter_vmid_context(mmu, &cxt);
+	enter_vmid_context(mmu, &cxt, false);
 
 	/*
 	 * We could do so much better if we had the VA as well.
@@ -126,10 +134,8 @@ void __kvm_tlb_flush_vmid_ipa_nsh(struct kvm_s2_mmu *mmu,
 {
 	struct tlb_inv_context cxt;
 
-	dsb(nshst);
-
 	/* Switch to requested VMID */
-	enter_vmid_context(mmu, &cxt);
+	enter_vmid_context(mmu, &cxt, true);
 
 	/*
 	 * We could do so much better if we had the VA as well.
@@ -169,7 +175,7 @@ void __kvm_tlb_flush_vmid_range(struct kvm_s2_mmu *mmu,
 	dsb(ishst);
 
 	/* Switch to requested VMID */
-	enter_vmid_context(mmu, &cxt);
+	enter_vmid_context(mmu, &cxt, false);
 
 	__flush_s2_tlb_range_op(ipas2e1is, start, pages, stride,
 				TLBI_TTL_UNKNOWN);
@@ -189,7 +195,7 @@ void __kvm_tlb_flush_vmid(struct kvm_s2_mmu *mmu)
 	dsb(ishst);
 
 	/* Switch to requested VMID */
-	enter_vmid_context(mmu, &cxt);
+	enter_vmid_context(mmu, &cxt, false);
 
 	__tlbi(vmalls12e1is);
 	dsb(ish);
@@ -203,7 +209,7 @@ void __kvm_flush_cpu_context(struct kvm_s2_mmu *mmu)
 	struct tlb_inv_context cxt;
 
 	/* Switch to requested VMID */
-	enter_vmid_context(mmu, &cxt);
+	enter_vmid_context(mmu, &cxt, false);
 
 	__tlbi(vmalle1);
 	asm volatile("ic iallu");
