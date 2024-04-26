@@ -802,4 +802,13 @@ enum kvm_pgtable_prot kvm_pgtable_hyp_pte_prot(kvm_pte_t pte);
  */
 void kvm_tlb_flush_vmid_range(struct kvm_s2_mmu *mmu,
 				phys_addr_t addr, size_t size);
+
+static inline bool stage2_has_fwb(struct kvm_pgtable *pgt)
+{
+	if (!cpus_have_final_cap(ARM64_HAS_STAGE2_FWB))
+		return false;
+
+	return !(pgt->flags & KVM_PGTABLE_S2_NOFWB);
+}
+
 #endif	/* __ARM64_KVM_PGTABLE_H__ */

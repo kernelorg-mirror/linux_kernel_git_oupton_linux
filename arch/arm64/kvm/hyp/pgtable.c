@@ -667,14 +667,6 @@ u64 kvm_get_vtcr(u64 mmfr0, u64 mmfr1, u32 phys_shift)
 	return vtcr;
 }
 
-static bool stage2_has_fwb(struct kvm_pgtable *pgt)
-{
-	if (!cpus_have_final_cap(ARM64_HAS_STAGE2_FWB))
-		return false;
-
-	return !(pgt->flags & KVM_PGTABLE_S2_NOFWB);
-}
-
 void kvm_tlb_flush_vmid_range(struct kvm_s2_mmu *mmu,
 				phys_addr_t addr, size_t size)
 {
