@@ -805,8 +805,7 @@ static bool stage2_try_break_pte(const struct kvm_pgtable_visit_ctx *ctx,
 
 			kvm_s2_tlb_flush_range(mmu, addr, size);
 		} else if (kvm_pte_valid(ctx->old)) {
-			kvm_call_hyp(__kvm_tlb_flush_vmid_ipa, mmu,
-				     ctx->addr, ctx->level);
+			kvm_s2_tlb_flush_addr(mmu, ctx->addr, ctx->level);
 		}
 	}
 

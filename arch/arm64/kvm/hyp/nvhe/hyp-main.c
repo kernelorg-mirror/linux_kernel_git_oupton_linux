@@ -115,15 +115,6 @@ static void handle___kvm_flush_vm_context(struct kvm_cpu_context *host_ctxt)
 	__kvm_flush_vm_context();
 }
 
-static void handle___kvm_tlb_flush_vmid_ipa(struct kvm_cpu_context *host_ctxt)
-{
-	DECLARE_REG(struct kvm_s2_mmu *, mmu, host_ctxt, 1);
-	DECLARE_REG(phys_addr_t, ipa, host_ctxt, 2);
-	DECLARE_REG(int, level, host_ctxt, 3);
-
-	__kvm_tlb_flush_vmid_ipa(kern_hyp_va(mmu), ipa, level);
-}
-
 static void handle___kvm_tlb_flush_vmid_ipa_nsh(struct kvm_cpu_context *host_ctxt)
 {
 	DECLARE_REG(struct kvm_s2_mmu *, mmu, host_ctxt, 1);
@@ -329,7 +320,6 @@ static const hcall_t host_hcall[] = {
 	HANDLE_FUNC(__kvm_adjust_pc),
 	HANDLE_FUNC(__kvm_vcpu_run),
 	HANDLE_FUNC(__kvm_flush_vm_context),
-	HANDLE_FUNC(__kvm_tlb_flush_vmid_ipa),
 	HANDLE_FUNC(__kvm_tlb_flush_vmid_ipa_nsh),
 	HANDLE_FUNC(__kvm_tlb_flush_vmid),
 	HANDLE_FUNC(__kvm_flush_cpu_context),

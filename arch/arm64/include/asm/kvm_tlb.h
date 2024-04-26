@@ -97,4 +97,10 @@ static inline void kvm_s2_tlb_flush_range(struct kvm_s2_mmu *mmu, gpa_t addr,
 	__kvm_s2_tlb_flush_range(mmu, addr, size, TLBI_TTL_UNKNOWN);
 }
 
+static inline void kvm_s2_tlb_flush_addr(struct kvm_s2_mmu *mmu, gpa_t addr,
+					 int level)
+{
+	__kvm_s2_tlb_flush_range(mmu, addr, kvm_granule_size(level), level);
+}
+
 #endif	/* __ARM64_KVM_TLB_H__ */

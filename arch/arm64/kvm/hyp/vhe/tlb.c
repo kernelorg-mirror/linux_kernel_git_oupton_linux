@@ -93,36 +93,6 @@ void exit_vmid_context(struct tlb_inv_context *cxt)
 	local_irq_restore(cxt->flags);
 }
 
-void __kvm_tlb_flush_vmid_ipa(struct kvm_s2_mmu *mmu,
-			      phys_addr_t ipa, int level)
-{
-	struct tlb_inv_context cxt;
-
-	/* Switch to requested VMID */
-	enter_vmid_context(mmu, &cxt, false);
-
-	/*
-	 * We could do so much better if we had the VA as well.
-	 * Instead, we invalidate Stage-2 for this IPA, and the
-	 * whole of Stage-1. Weep...
-	 */
-	ipa >>= 12;
-	__tlbi_level(ipas2e1is, ipa, level);
-
-	/*
-	 * We have to ensure completion of the invalidation at Stage-2,
-	 * since a table walk on another CPU could refill a TLB with a
-	 * complete (S1 + S2) walk based on the old Stage-2 mapping if
-	 * the Stage-1 invalidation happened first.
-	 */
-	dsb(ish);
-	__tlbi(vmalle1is);
-	dsb(ish);
-	isb();
-
-	exit_vmid_context(&cxt);
-}
-
 void __kvm_tlb_flush_vmid_ipa_nsh(struct kvm_s2_mmu *mmu,
 				  phys_addr_t ipa, int level)
 {
