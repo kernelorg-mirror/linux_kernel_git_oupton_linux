@@ -10,16 +10,10 @@
 #include <asm/kvm_mmu.h>
 #include <asm/tlbflush.h>
 
-struct tlb_inv_context {
-	struct kvm_s2_mmu	*mmu;
-	unsigned long		flags;
-	u64			tcr;
-	u64			sctlr;
-};
+#include <hyp/tlb.h>
 
-static void enter_vmid_context(struct kvm_s2_mmu *mmu,
-			       struct tlb_inv_context *cxt,
-			       bool nsh)
+void enter_vmid_context(struct kvm_s2_mmu *mmu, struct tlb_inv_context *cxt,
+			bool nsh)
 {
 	struct kvm_vcpu *vcpu = kvm_get_running_vcpu();
 	u64 val;
@@ -77,7 +71,7 @@ static void enter_vmid_context(struct kvm_s2_mmu *mmu,
 	isb();
 }
 
-static void exit_vmid_context(struct tlb_inv_context *cxt)
+void exit_vmid_context(struct tlb_inv_context *cxt)
 {
 	/*
 	 * We're done with the TLB operation, let's restore the host's

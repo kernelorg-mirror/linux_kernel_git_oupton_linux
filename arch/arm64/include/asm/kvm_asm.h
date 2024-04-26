@@ -72,6 +72,7 @@ enum __kvm_host_smccc_func {
 	__KVM_HOST_SMCCC_FUNC___kvm_tlb_flush_vmid,
 	__KVM_HOST_SMCCC_FUNC___kvm_tlb_flush_vmid_range,
 	__KVM_HOST_SMCCC_FUNC___kvm_flush_cpu_context,
+	__KVM_HOST_SMCCC_FUNC___kvm_s2_tlb_flush,
 	__KVM_HOST_SMCCC_FUNC___kvm_timer_set_cntvoff,
 	__KVM_HOST_SMCCC_FUNC___vgic_v3_read_vmcr,
 	__KVM_HOST_SMCCC_FUNC___vgic_v3_write_vmcr,
@@ -210,6 +211,7 @@ struct kvm_nvhe_stacktrace_info {
 struct kvm;
 struct kvm_vcpu;
 struct kvm_s2_mmu;
+struct kvm_s2_gather;
 
 DECLARE_KVM_NVHE_SYM(__kvm_hyp_init);
 DECLARE_KVM_HYP_SYM(__kvm_hyp_vector);
@@ -233,6 +235,8 @@ extern void __kvm_tlb_flush_vmid_ipa_nsh(struct kvm_s2_mmu *mmu,
 extern void __kvm_tlb_flush_vmid_range(struct kvm_s2_mmu *mmu,
 					phys_addr_t start, unsigned long pages);
 extern void __kvm_tlb_flush_vmid(struct kvm_s2_mmu *mmu);
+
+extern void __kvm_s2_tlb_flush(struct kvm_s2_gather *tlb);
 
 extern void __kvm_timer_set_cntvoff(u64 cntvoff);
 

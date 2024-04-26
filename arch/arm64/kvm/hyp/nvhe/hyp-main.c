@@ -5,6 +5,7 @@
  */
 
 #include <hyp/adjust_pc.h>
+#include <hyp/tlb.h>
 
 #include <asm/pgtable-types.h>
 #include <asm/kvm_asm.h>
@@ -154,6 +155,13 @@ static void handle___kvm_flush_cpu_context(struct kvm_cpu_context *host_ctxt)
 	DECLARE_REG(struct kvm_s2_mmu *, mmu, host_ctxt, 1);
 
 	__kvm_flush_cpu_context(kern_hyp_va(mmu));
+}
+
+static void handle___kvm_s2_tlb_flush(struct kvm_cpu_context *host_ctxt)
+{
+	DECLARE_REG(struct kvm_s2_gather *, tlb, host_ctxt, 1);
+
+	__kvm_s2_tlb_flush(kern_hyp_va(tlb));
 }
 
 static void handle___kvm_timer_set_cntvoff(struct kvm_cpu_context *host_ctxt)
@@ -336,6 +344,7 @@ static const hcall_t host_hcall[] = {
 	HANDLE_FUNC(__kvm_tlb_flush_vmid),
 	HANDLE_FUNC(__kvm_tlb_flush_vmid_range),
 	HANDLE_FUNC(__kvm_flush_cpu_context),
+	HANDLE_FUNC(__kvm_s2_tlb_flush),
 	HANDLE_FUNC(__kvm_timer_set_cntvoff),
 	HANDLE_FUNC(__vgic_v3_read_vmcr),
 	HANDLE_FUNC(__vgic_v3_write_vmcr),

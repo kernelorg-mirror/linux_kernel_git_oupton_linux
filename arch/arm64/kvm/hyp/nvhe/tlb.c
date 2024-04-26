@@ -8,17 +8,11 @@
 #include <asm/kvm_mmu.h>
 #include <asm/tlbflush.h>
 
+#include <hyp/tlb.h>
 #include <nvhe/mem_protect.h>
 
-struct tlb_inv_context {
-	struct kvm_s2_mmu	*mmu;
-	u64			tcr;
-	u64			sctlr;
-};
-
-static void enter_vmid_context(struct kvm_s2_mmu *mmu,
-			       struct tlb_inv_context *cxt,
-			       bool nsh)
+void enter_vmid_context(struct kvm_s2_mmu *mmu, struct tlb_inv_context *cxt,
+			bool nsh)
 {
 	struct kvm_s2_mmu *host_s2_mmu = &host_mmu.arch.mmu;
 	struct kvm_cpu_context *host_ctxt;
@@ -115,7 +109,7 @@ static void enter_vmid_context(struct kvm_s2_mmu *mmu,
 	asm(ALTERNATIVE("isb", "nop", ARM64_WORKAROUND_SPECULATIVE_AT));
 }
 
-static void exit_vmid_context(struct tlb_inv_context *cxt)
+void exit_vmid_context(struct tlb_inv_context *cxt)
 {
 	struct kvm_s2_mmu *mmu = cxt->mmu;
 	struct kvm_cpu_context *host_ctxt;

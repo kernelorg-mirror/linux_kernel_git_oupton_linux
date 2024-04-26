@@ -25,6 +25,29 @@ struct kvm_s2_gather {
 	.start	= U64_MAX,		\
 }
 
+static inline bool __kvm_s2_tlb_empty(struct kvm_s2_gather *tlb)
+{
+	return tlb->start >= tlb->end;
+}
+
+static inline int __kvm_s2_tlb_ttl(struct kvm_s2_gather *tlb)
+{
+	if (WARN_ON_ONCE(!tlb->ttl_valid))
+		return TLBI_TTL_UNKNOWN;
+
+	return tlb->ttl;
+}
+
+static inline gpa_t __kvm_s2_tlb_stride(struct kvm_s2_gather *tlb)
+{
+	int ttl = __kvm_s2_tlb_ttl(tlb);
+
+	if (ttl == TLBI_TTL_UNKNOWN)
+		return kvm_granule_size(KVM_PGTABLE_LAST_LEVEL);
+
+	return kvm_granule_size(ttl);
+}
+
 static inline void kvm_s2_tlb_remove_pte(struct kvm_s2_gather *tlb,
 					 const struct kvm_pgtable_visit_ctx *ctx)
 {
