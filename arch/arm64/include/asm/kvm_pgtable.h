@@ -52,6 +52,11 @@ typedef u64 kvm_pte_t;
 
 #define KVM_PTE_VALID			BIT(0)
 
+#define KVM_PTE_TYPE			BIT(1)
+#define KVM_PTE_TYPE_BLOCK		0
+#define KVM_PTE_TYPE_PAGE		1
+#define KVM_PTE_TYPE_TABLE		1
+
 #define KVM_PTE_ADDR_MASK		GENMASK(47, PAGE_SHIFT)
 #define KVM_PTE_ADDR_51_48		GENMASK(15, 12)
 #define KVM_PTE_ADDR_MASK_LPA2		GENMASK(49, PAGE_SHIFT)
@@ -62,6 +67,17 @@ typedef u64 kvm_pte_t;
 static inline bool kvm_pte_valid(kvm_pte_t pte)
 {
 	return pte & KVM_PTE_VALID;
+}
+
+static inline bool kvm_pte_table(kvm_pte_t pte, s8 level)
+{
+	if (level == KVM_PGTABLE_LAST_LEVEL)
+		return false;
+
+	if (!kvm_pte_valid(pte))
+		return false;
+
+	return FIELD_GET(KVM_PTE_TYPE, pte) == KVM_PTE_TYPE_TABLE;
 }
 
 static inline u64 kvm_pte_to_phys(kvm_pte_t pte)
