@@ -9,6 +9,7 @@
 
 #include <linux/bitfield.h>
 #include <asm/kvm_pgtable.h>
+#include <asm/kvm_tlb.h>
 #include <asm/stage2_pgtable.h>
 
 #define KVM_PTE_LEAF_ATTR_LO		GENMASK(11, 2)
@@ -847,6 +848,11 @@ static void stage2_make_pte(const struct kvm_pgtable_visit_ctx *ctx, kvm_pte_t n
 	smp_store_release(ctx->ptep, new);
 }
 
+struct stage2_unmap_data {
+	struct kvm_pgtable	*pgt;
+	struct kvm_s2_gather	*tlb;
+};
+
 static bool stage2_unmap_defer_tlb_flush(struct kvm_pgtable *pgt)
 {
 	/*
@@ -864,7 +870,8 @@ static void stage2_unmap_put_pte(const struct kvm_pgtable_visit_ctx *ctx,
 				struct kvm_s2_mmu *mmu,
 				struct kvm_pgtable_mm_ops *mm_ops)
 {
-	struct kvm_pgtable *pgt = ctx->arg;
+	struct stage2_unmap_data *data = ctx->arg;
+	struct kvm_pgtable *pgt = data->pgt;
 
 	/*
 	 * Clear the existing PTE, and perform break-before-make if it was
@@ -873,6 +880,8 @@ static void stage2_unmap_put_pte(const struct kvm_pgtable_visit_ctx *ctx,
 	 */
 	if (kvm_pte_valid(ctx->old)) {
 		kvm_clear_pte(ctx->ptep);
+
+		kvm_s2_tlb_remove_pte(data->tlb, ctx);
 
 		if (kvm_pte_table(ctx->old, ctx->level)) {
 			kvm_call_hyp(__kvm_tlb_flush_vmid_ipa, mmu, ctx->addr,
@@ -1110,7 +1119,8 @@ int kvm_pgtable_stage2_set_owner(struct kvm_pgtable *pgt, u64 addr, u64 size,
 static int stage2_unmap_walker(const struct kvm_pgtable_visit_ctx *ctx,
 			       enum kvm_pgtable_walk_flags visit)
 {
-	struct kvm_pgtable *pgt = ctx->arg;
+	struct stage2_unmap_data *data = ctx->arg;
+	struct kvm_pgtable *pgt = data->pgt;
 	struct kvm_s2_mmu *mmu = pgt->mmu;
 	struct kvm_pgtable_mm_ops *mm_ops = ctx->mm_ops;
 	kvm_pte_t *childp = NULL;
@@ -1153,9 +1163,14 @@ static int stage2_unmap_walker(const struct kvm_pgtable_visit_ctx *ctx,
 int kvm_pgtable_stage2_unmap(struct kvm_pgtable *pgt, u64 addr, u64 size)
 {
 	int ret;
+	struct kvm_s2_gather tlb = KVM_S2_GATHER(pgt->mmu);
+	struct stage2_unmap_data data = {
+		.pgt	= pgt,
+		.tlb	= &tlb,
+	};
 	struct kvm_pgtable_walker walker = {
 		.cb	= stage2_unmap_walker,
-		.arg	= pgt,
+		.arg	= &data,
 		.flags	= KVM_PGTABLE_WALK_LEAF | KVM_PGTABLE_WALK_TABLE_POST,
 	};
 
