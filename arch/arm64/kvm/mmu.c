@@ -1404,7 +1404,8 @@ static int user_mem_abort(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	VM_BUG_ON(write_fault && exec_fault);
 
 	if (fault_is_perm && !write_fault && !exec_fault) {
-		kvm_err("Unexpected L2 read permission error\n");
+		kvm_err("Unexpected stage-2 permission error. esr_el2: %llx, ipa: %llx\n",
+                        kvm_vcpu_get_esr(vcpu), fault_ipa);
 		return -EFAULT;
 	}
 
