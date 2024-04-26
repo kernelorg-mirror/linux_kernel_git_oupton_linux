@@ -75,3 +75,40 @@ void __kvm_tlb_flush_vmid_ipa_nsh(struct kvm_s2_mmu *mmu,
 {
 	____kvm_s2_tlbi(__tlbi_level, mmu, false, ipas2e1, ipa, level);
 }
+
+void __kvm_tlb_flush_vmid(struct kvm_s2_mmu *mmu)
+{
+	struct tlb_inv_context cxt;
+
+	/* Switch to requested VMID */
+	enter_vmid_context(mmu, &cxt, false);
+
+	__tlbi(vmalls12e1is);
+	dsb(ish);
+	isb();
+
+	exit_vmid_context(&cxt);
+}
+
+void __kvm_flush_cpu_context(struct kvm_s2_mmu *mmu)
+{
+	struct tlb_inv_context cxt;
+
+	/* Switch to requested VMID */
+	enter_vmid_context(mmu, &cxt, false);
+
+	__tlbi(vmalle1);
+	asm volatile("ic iallu");
+	dsb(nsh);
+	isb();
+
+	exit_vmid_context(&cxt);
+}
+
+void __kvm_flush_vm_context(void)
+{
+	/* Same remark as in enter_vmid_context() */
+	dsb(ish);
+	__tlbi(alle1is);
+	dsb(ish);
+}
