@@ -69,3 +69,9 @@ void __kvm_s2_tlb_flush(struct kvm_s2_gather *tlb)
 
 	*tlb = (struct kvm_s2_gather)KVM_S2_GATHER(tlb->mmu);
 }
+
+void __kvm_tlb_flush_vmid_ipa_nsh(struct kvm_s2_mmu *mmu,
+				  phys_addr_t ipa, int level)
+{
+	____kvm_s2_tlbi(__tlbi_level, mmu, false, ipas2e1, ipa, level);
+}
