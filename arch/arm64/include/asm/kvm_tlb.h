@@ -48,6 +48,16 @@ static inline gpa_t __kvm_s2_tlb_stride(struct kvm_s2_gather *tlb)
 	return kvm_granule_size(ttl);
 }
 
+static inline void kvm_s2_tlb_flush(struct kvm_s2_gather *tlb)
+{
+	kvm_call_hyp(__kvm_s2_tlb_flush, tlb);
+}
+
+static inline bool __kvm_s2_can_defer_table_flush(void)
+{
+	return is_hyp_code();
+}
+
 static inline void kvm_s2_tlb_remove_pte(struct kvm_s2_gather *tlb,
 					 const struct kvm_pgtable_visit_ctx *ctx)
 {
@@ -61,6 +71,10 @@ static inline void kvm_s2_tlb_remove_pte(struct kvm_s2_gather *tlb,
 
 	tlb->start = min(tlb->start, ctx->addr);
 	tlb->end = max(tlb->end, ctx->addr + kvm_granule_size(ctx->level));
+
+	if (!stage2_has_fwb(tlb->mmu->pgt) ||
+	    (!__kvm_s2_can_defer_table_flush() && kvm_pte_table(ctx->old, ctx->level)))
+		kvm_s2_tlb_flush(tlb);
 }
 
 #endif	/* __ARM64_KVM_TLB_H__ */

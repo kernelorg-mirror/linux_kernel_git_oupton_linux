@@ -853,25 +853,11 @@ struct stage2_unmap_data {
 	struct kvm_s2_gather	*tlb;
 };
 
-static bool stage2_unmap_defer_tlb_flush(struct kvm_pgtable *pgt)
-{
-	/*
-	 * If FEAT_TLBIRANGE is implemented, defer the individual
-	 * TLB invalidations until the entire walk is finished, and
-	 * then use the range-based TLBI instructions to do the
-	 * invalidations. Condition deferred TLB invalidation on the
-	 * system supporting FWB as the optimization is entirely
-	 * pointless when the unmap walker needs to perform CMOs.
-	 */
-	return system_supports_tlb_range() && stage2_has_fwb(pgt);
-}
-
 static void stage2_unmap_put_pte(const struct kvm_pgtable_visit_ctx *ctx,
 				struct kvm_s2_mmu *mmu,
 				struct kvm_pgtable_mm_ops *mm_ops)
 {
 	struct stage2_unmap_data *data = ctx->arg;
-	struct kvm_pgtable *pgt = data->pgt;
 
 	/*
 	 * Clear the existing PTE, and perform break-before-make if it was
@@ -882,14 +868,6 @@ static void stage2_unmap_put_pte(const struct kvm_pgtable_visit_ctx *ctx,
 		kvm_clear_pte(ctx->ptep);
 
 		kvm_s2_tlb_remove_pte(data->tlb, ctx);
-
-		if (kvm_pte_table(ctx->old, ctx->level)) {
-			kvm_call_hyp(__kvm_tlb_flush_vmid_ipa, mmu, ctx->addr,
-				     TLBI_TTL_UNKNOWN);
-		} else if (!stage2_unmap_defer_tlb_flush(pgt)) {
-			kvm_call_hyp(__kvm_tlb_flush_vmid_ipa, mmu, ctx->addr,
-				     ctx->level);
-		}
 	}
 
 	mm_ops->put_page(ctx->ptep);
@@ -1175,9 +1153,7 @@ int kvm_pgtable_stage2_unmap(struct kvm_pgtable *pgt, u64 addr, u64 size)
 	};
 
 	ret = kvm_pgtable_walk(pgt, addr, size, &walker);
-	if (stage2_unmap_defer_tlb_flush(pgt))
-		/* Perform the deferred TLB invalidations */
-		kvm_tlb_flush_vmid_range(pgt->mmu, addr, size);
+	kvm_s2_tlb_flush(&tlb);
 
 	return ret;
 }
