@@ -668,26 +668,6 @@ u64 kvm_get_vtcr(u64 mmfr0, u64 mmfr1, u32 phys_shift)
 	return vtcr;
 }
 
-void kvm_tlb_flush_vmid_range(struct kvm_s2_mmu *mmu,
-				phys_addr_t addr, size_t size)
-{
-	unsigned long pages, inval_pages;
-
-	if (!system_supports_tlb_range()) {
-		kvm_call_hyp(__kvm_tlb_flush_vmid, mmu);
-		return;
-	}
-
-	pages = size >> PAGE_SHIFT;
-	while (pages > 0) {
-		inval_pages = min(pages, MAX_TLBI_RANGE_PAGES);
-		kvm_call_hyp(__kvm_tlb_flush_vmid_range, mmu, addr, inval_pages);
-
-		addr += inval_pages << PAGE_SHIFT;
-		pages -= inval_pages;
-	}
-}
-
 #define KVM_S2_MEMATTR(pgt, attr) PAGE_S2_MEMATTR(attr, stage2_has_fwb(pgt))
 
 static int stage2_set_prot_attr(struct kvm_pgtable *pgt, enum kvm_pgtable_prot prot,
@@ -823,7 +803,7 @@ static bool stage2_try_break_pte(const struct kvm_pgtable_visit_ctx *ctx,
 			u64 size = kvm_granule_size(ctx->level);
 			u64 addr = ALIGN_DOWN(ctx->addr, size);
 
-			kvm_tlb_flush_vmid_range(mmu, addr, size);
+			kvm_s2_tlb_flush_range(mmu, addr, size);
 		} else if (kvm_pte_valid(ctx->old)) {
 			kvm_call_hyp(__kvm_tlb_flush_vmid_ipa, mmu,
 				     ctx->addr, ctx->level);

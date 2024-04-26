@@ -77,4 +77,24 @@ static inline void kvm_s2_tlb_remove_pte(struct kvm_s2_gather *tlb,
 		kvm_s2_tlb_flush(tlb);
 }
 
+static inline void __kvm_s2_tlb_flush_range(struct kvm_s2_mmu *mmu, gpa_t addr,
+					    gpa_t size, int ttl)
+{
+	struct kvm_s2_gather tlb = {
+		.mmu		= mmu,
+		.start		= addr,
+		.end		= addr + size,
+		.ttl		= ttl,
+		.ttl_valid	= true,
+	};
+
+	kvm_s2_tlb_flush(&tlb);
+}
+
+static inline void kvm_s2_tlb_flush_range(struct kvm_s2_mmu *mmu, gpa_t addr,
+					  gpa_t size)
+{
+	__kvm_s2_tlb_flush_range(mmu, addr, size, TLBI_TTL_UNKNOWN);
+}
+
 #endif	/* __ARM64_KVM_TLB_H__ */

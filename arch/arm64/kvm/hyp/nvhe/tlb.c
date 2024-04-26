@@ -199,33 +199,6 @@ void __kvm_tlb_flush_vmid_ipa_nsh(struct kvm_s2_mmu *mmu,
 	exit_vmid_context(&cxt);
 }
 
-void __kvm_tlb_flush_vmid_range(struct kvm_s2_mmu *mmu,
-				phys_addr_t start, unsigned long pages)
-{
-	struct tlb_inv_context cxt;
-	unsigned long stride;
-
-	/*
-	 * Since the range of addresses may not be mapped at
-	 * the same level, assume the worst case as PAGE_SIZE
-	 */
-	stride = PAGE_SIZE;
-	start = round_down(start, stride);
-
-	/* Switch to requested VMID */
-	enter_vmid_context(mmu, &cxt, false);
-
-	__flush_s2_tlb_range_op(ipas2e1is, start, pages, stride,
-				TLBI_TTL_UNKNOWN);
-
-	dsb(ish);
-	__tlbi(vmalle1is);
-	dsb(ish);
-	isb();
-
-	exit_vmid_context(&cxt);
-}
-
 void __kvm_tlb_flush_vmid(struct kvm_s2_mmu *mmu)
 {
 	struct tlb_inv_context cxt;
