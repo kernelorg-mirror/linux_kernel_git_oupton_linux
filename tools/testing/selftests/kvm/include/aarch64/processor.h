@@ -133,6 +133,8 @@ void vm_install_sync_handler(struct kvm_vm *vm,
 
 uint64_t *virt_get_pte_hva(struct kvm_vm *vm, vm_vaddr_t gva);
 
+void __virt_pg_map(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr, uint64_t flags);
+
 static inline void cpu_relax(void)
 {
 	asm volatile("yield" ::: "memory");
