@@ -599,4 +599,5 @@ static __always_inline void kvm_reset_cptr_el2(struct kvm_vcpu *vcpu)
 
 	kvm_write_cptr_el2(val);
 }
+
 #endif /* __ARM64_KVM_EMULATE_H__ */
