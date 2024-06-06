@@ -911,8 +911,29 @@ static int kvm_mmu_notifier_test_young(struct mmu_notifier *mn,
 	trace_kvm_test_age_hva(address);
 
 	return kvm_handle_hva_range_no_flush(mn, address, address + 1,
-					     kvm_test_age_gfn, true);
+					     kvm_test_age_gfn,
+					     true);
 }
+
+#ifdef CONFIG_KVM_MMU_NOTIFIER_YOUNG_FAST
+static int kvm_mmu_notifier_test_clear_young_fast_only(struct mmu_notifier *mn,
+						       struct mm_struct *mm,
+						       unsigned long start,
+						       unsigned long end,
+						       bool clear)
+{
+	trace_kvm_fast_test_age_hva(start, end, clear);
+
+	if (clear)
+		return kvm_handle_hva_range_no_flush(mn, start, end,
+						     kvm_fast_age_gfn,
+						     true);
+	else
+		return kvm_handle_hva_range_no_flush(mn, start, end,
+						     kvm_fast_test_age_gfn,
+						     true);
+}
+#endif
 
 static void kvm_mmu_notifier_release(struct mmu_notifier *mn,
 				     struct mm_struct *mm)
@@ -926,12 +947,16 @@ static void kvm_mmu_notifier_release(struct mmu_notifier *mn,
 }
 
 static const struct mmu_notifier_ops kvm_mmu_notifier_ops = {
-	.invalidate_range_start	= kvm_mmu_notifier_invalidate_range_start,
-	.invalidate_range_end	= kvm_mmu_notifier_invalidate_range_end,
-	.clear_flush_young	= kvm_mmu_notifier_clear_flush_young,
-	.clear_young		= kvm_mmu_notifier_clear_young,
-	.test_young		= kvm_mmu_notifier_test_young,
-	.release		= kvm_mmu_notifier_release,
+	.invalidate_range_start		= kvm_mmu_notifier_invalidate_range_start,
+	.invalidate_range_end		= kvm_mmu_notifier_invalidate_range_end,
+	.clear_flush_young		= kvm_mmu_notifier_clear_flush_young,
+	.clear_young			= kvm_mmu_notifier_clear_young,
+	.test_young			= kvm_mmu_notifier_test_young,
+#ifdef CONFIG_KVM_MMU_NOTIFIER_FAST_YOUNG
+	.test_clear_young_fast_only	=
+		kvm_mmu_notifier_test_clear_young_fast_only,
+#endif
+	.release			= kvm_mmu_notifier_release,
 };
 
 static int kvm_init_mmu_notifier(struct kvm *kvm)

@@ -271,7 +271,11 @@ struct kvm_gfn_range {
 int kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
 int kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
 int kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
+#ifdef CONFIG_KVM_MMU_NOTIFIER_YOUNG_FAST
+int kvm_fast_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
+int kvm_fast_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
 #endif
+#endif /* CONFIG_KVM_GENERIC_MMU_NOTIFIER */
 
 enum {
 	OUTSIDE_GUEST_MODE,
