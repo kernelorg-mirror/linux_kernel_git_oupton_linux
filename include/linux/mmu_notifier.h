@@ -123,6 +123,19 @@ struct mmu_notifier_ops {
 			  unsigned long address);
 
 	/*
+	 * test_clear_young_fast_only is called to check (and optionally clear)
+	 * the young/accessed bitflag in the secondary pte such that the
+	 * secondary MMU must implement it in a way that will not significantly
+	 * disrupt other MMU operations. In other words, speed is more
+	 * important than accuracy.
+	 */
+	int (*test_clear_young_fast_only)(struct mmu_notifier *subscription,
+					  struct mm_struct *mm,
+					  unsigned long start,
+					  unsigned long end,
+					  bool clear);
+
+	/*
 	 * invalidate_range_start() and invalidate_range_end() must be
 	 * paired and are called only when the mmap_lock and/or the
 	 * locks protecting the reverse maps are held. If the subsystem
@@ -383,6 +396,10 @@ extern int __mmu_notifier_clear_young(struct mm_struct *mm,
 				      unsigned long end);
 extern int __mmu_notifier_test_young(struct mm_struct *mm,
 				     unsigned long address);
+extern int __mmu_notifier_test_clear_young_fast_only(struct mm_struct *mm,
+						     unsigned long start,
+						     unsigned long end,
+						     bool clear);
 extern int __mmu_notifier_invalidate_range_start(struct mmu_notifier_range *r);
 extern void __mmu_notifier_invalidate_range_end(struct mmu_notifier_range *r);
 extern void __mmu_notifier_arch_invalidate_secondary_tlbs(struct mm_struct *mm,
@@ -425,6 +442,17 @@ static inline int mmu_notifier_test_young(struct mm_struct *mm,
 {
 	if (mm_has_notifiers(mm))
 		return __mmu_notifier_test_young(mm, address);
+	return 0;
+}
+
+static inline int mmu_notifier_test_clear_young_fast_only(struct mm_struct *mm,
+							  unsigned long start,
+							  unsigned long end,
+							  bool clear)
+{
+	if (mm_has_notifiers(mm))
+		return __mmu_notifier_test_clear_young_fast_only(mm, start, end,
+								 clear);
 	return 0;
 }
 
@@ -608,6 +636,14 @@ static inline int mmu_notifier_clear_flush_young(struct mm_struct *mm,
 
 static inline int mmu_notifier_test_young(struct mm_struct *mm,
 					  unsigned long address)
+{
+	return 0;
+}
+
+static inline int mmu_notifier_test_clear_young_fast_only(struct mm_struct *mm,
+							  unsigned long start,
+							  unsigned long end,
+							  bool clear)
 {
 	return 0;
 }

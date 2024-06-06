@@ -424,6 +424,30 @@ int __mmu_notifier_test_young(struct mm_struct *mm,
 	return young;
 }
 
+int __mmu_notifier_test_clear_young_fast_only(struct mm_struct *mm,
+					      unsigned long start,
+					      unsigned long end,
+					      bool clear)
+{
+	struct mmu_notifier *subscription;
+	int young = 0, id;
+
+	id = srcu_read_lock(&srcu);
+	hlist_for_each_entry_rcu(subscription,
+				 &mm->notifier_subscriptions->list, hlist,
+				 srcu_read_lock_held(&srcu)) {
+		if (subscription->ops->test_clear_young_fast_only) {
+			young = subscription->ops->test_clear_young_fast_only(
+					subscription, mm, start, end, clear);
+			if (!clear && young)
+				break;
+		}
+	}
+	srcu_read_unlock(&srcu, id);
+
+	return young;
+}
+
 static int mn_itree_invalidate(struct mmu_notifier_subscriptions *subscriptions,
 			       const struct mmu_notifier_range *range)
 {
