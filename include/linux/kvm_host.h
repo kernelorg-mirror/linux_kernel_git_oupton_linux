@@ -268,9 +268,9 @@ struct kvm_gfn_range {
 	bool may_block;
 	bool lockless;
 };
-bool kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
-bool kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
-bool kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
+int kvm_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
+int kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
+int kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range);
 #endif
 
 enum {
@@ -1445,7 +1445,7 @@ void *kvm_mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc);
 void kvm_mmu_invalidate_begin(struct kvm *kvm);
 void kvm_mmu_invalidate_range_add(struct kvm *kvm, gfn_t start, gfn_t end);
 void kvm_mmu_invalidate_end(struct kvm *kvm);
-bool kvm_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
+int kvm_mmu_unmap_gfn_range(struct kvm *kvm, struct kvm_gfn_range *range);
 
 long kvm_arch_dev_ioctl(struct file *filp,
 			unsigned int ioctl, unsigned long arg);
