@@ -1629,11 +1629,15 @@ static void rmap_add(struct kvm_vcpu *vcpu, const struct kvm_memory_slot *slot,
 	__rmap_add(vcpu->kvm, cache, slot, spte, gfn, access);
 }
 
-int kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
+static int __kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range,
+			 bool fast_only)
 {
 	bool young = false;
 
 	if (kvm_memslots_have_rmaps(kvm)) {
+		if (fast_only)
+			return -1;
+
 		write_lock(&kvm->mmu_lock);
 		young = kvm_handle_gfn_range(kvm, range, kvm_age_rmap);
 		write_unlock(&kvm->mmu_lock);
@@ -1642,14 +1646,18 @@ int kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
 	if (tdp_mmu_enabled)
 		young |= kvm_tdp_mmu_age_gfn_range(kvm, range);
 
-	return young;
+	return (int)young;
 }
 
-int kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
+static int __kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range,
+			      bool fast_only)
 {
 	bool young = false;
 
 	if (kvm_memslots_have_rmaps(kvm)) {
+		if (fast_only)
+			return -1;
+
 		write_lock(&kvm->mmu_lock);
 		young = kvm_handle_gfn_range(kvm, range, kvm_test_age_rmap);
 		write_unlock(&kvm->mmu_lock);
@@ -1658,7 +1666,27 @@ int kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
 	if (tdp_mmu_enabled)
 		young |= kvm_tdp_mmu_test_age_gfn(kvm, range);
 
-	return young;
+	return (int)young;
+}
+
+int kvm_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
+{
+	return __kvm_age_gfn(kvm, range, false);
+}
+
+int kvm_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
+{
+	return __kvm_test_age_gfn(kvm, range, false);
+}
+
+int kvm_fast_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
+{
+	return __kvm_age_gfn(kvm, range, true);
+}
+
+int kvm_fast_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
+{
+	return __kvm_test_age_gfn(kvm, range, true);
 }
 
 static void kvm_mmu_check_sptes_at_free(struct kvm_mmu_page *sp)
