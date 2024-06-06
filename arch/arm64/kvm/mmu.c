@@ -1808,6 +1808,16 @@ out:
 	return young;
 }
 
+int kvm_fast_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
+{
+	return kvm_age_gfn(kvm, range);
+}
+
+int kvm_fast_test_age_gfn(struct kvm *kvm, struct kvm_gfn_range *range)
+{
+	return kvm_test_age_gfn(kvm, range);
+}
+
 phys_addr_t kvm_mmu_get_httbr(void)
 {
 	return __pa(hyp_pgtable->pgd);
