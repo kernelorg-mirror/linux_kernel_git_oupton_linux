@@ -909,10 +909,14 @@ static void limit_nv_id_regs(struct kvm *kvm)
 
 	/* Force TTL support */
 	val |= FIELD_PREP(NV_FTR(MMFR2, TTL), 0b0001);
+	tmp = kvm_read_vm_id_reg(kvm, SYS_ID_AA64MMFR1_EL1);
+	if (!FIELD_GET(NV_FTR(MMFR1, VH), tmp))
+		val &= ~ID_AA64MMFR2_EL1_NV_MASK;
 	kvm_set_vm_id_reg(kvm, SYS_ID_AA64MMFR2_EL1, val);
 
 	val = 0;
-	if (!cpus_have_final_cap(ARM64_HAS_HCR_NV1))
+	tmp = kvm_read_vm_id_reg(kvm, SYS_ID_AA64MMFR1_EL1);
+	if (FIELD_GET(NV_FTR(MMFR1, VH), tmp))
 		val |= FIELD_PREP(NV_FTR(MMFR4, E2H0),
 				  ID_AA64MMFR4_EL1_E2H0_NI_NV1);
 	kvm_set_vm_id_reg(kvm, SYS_ID_AA64MMFR4_EL1, val);
