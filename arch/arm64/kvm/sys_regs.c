@@ -18,6 +18,8 @@
 #include <linux/printk.h>
 #include <linux/uaccess.h>
 
+#include <linux/irqchip/arm-gic-v3.h>
+
 #include <asm/cacheflush.h>
 #include <asm/cputype.h>
 #include <asm/debug-monitors.h>
@@ -141,6 +143,21 @@ u64 vcpu_read_sys_reg(const struct kvm_vcpu *vcpu, int reg)
 			goto memory_read;
 
 		/*
+		 * CNTHCTL_EL2 requires some special treatment to
+		 * account for the bits that can be set via CNTKCTL_EL1.
+		 */
+		switch (reg) {
+		case CNTHCTL_EL2:
+			if (vcpu_el2_e2h_is_set(vcpu)) {
+				val = read_sysreg_el1(SYS_CNTKCTL);
+				val &= CNTKCTL_VALID_BITS;
+				val |= __vcpu_sys_reg(vcpu, reg) & ~CNTKCTL_VALID_BITS;
+				return val;
+			}
+			break;
+		}
+
+		/*
 		 * If this register does not have an EL1 counterpart,
 		 * then read the stored EL2 version.
 		 */
@@ -189,6 +206,19 @@ void vcpu_write_sys_reg(struct kvm_vcpu *vcpu, u64 val, int reg)
 		 * non-VHE guest hypervisor.
 		 */
 		__vcpu_sys_reg(vcpu, reg) = val;
+
+		switch (reg) {
+		case CNTHCTL_EL2:
+			/*
+			 * If E2H=0, CNHTCTL_EL2 is a pure shadow register.
+			 * Otherwise, some of the bits are backed by
+			 * CNTKCTL_EL1, while the rest is kept in memory.
+			 * Yes, this is fun stuff.
+			 */
+			if (vcpu_el2_e2h_is_set(vcpu))
+				write_sysreg_el1(val, SYS_CNTKCTL);
+			return;
+		}
 
 		/* No EL1 counterpart? We're done here.? */
 		if (reg == el1r)
@@ -475,7 +505,13 @@ static bool access_gic_sre(struct kvm_vcpu *vcpu,
 	if (p->is_write)
 		return ignore_write(vcpu, p);
 
-	p->regval = vcpu->arch.vgic_cpu.vgic_v3.vgic_sre;
+	if (p->Op1 == 4) {	/* ICC_SRE_EL2 */
+		p->regval = (ICC_SRE_EL2_ENABLE | ICC_SRE_EL2_SRE |
+			     ICC_SRE_EL1_DIB | ICC_SRE_EL1_DFB);
+	} else {		/* ICC_SRE_EL1 */
+		p->regval = vcpu->arch.vgic_cpu.vgic_v3.vgic_sre;
+	}
+
 	return true;
 }
 
@@ -1376,26 +1412,130 @@ static bool access_arch_timer(struct kvm_vcpu *vcpu,
 
 	switch (reg) {
 	case SYS_CNTP_TVAL_EL0:
+		if (is_hyp_ctxt(vcpu) && vcpu_el2_e2h_is_set(vcpu))
+			tmr = TIMER_HPTIMER;
+		else
+			tmr = TIMER_PTIMER;
+		treg = TIMER_REG_TVAL;
+		break;
+
+	case SYS_CNTV_TVAL_EL0:
+		if (is_hyp_ctxt(vcpu) && vcpu_el2_e2h_is_set(vcpu))
+			tmr = TIMER_HVTIMER;
+		else
+			tmr = TIMER_VTIMER;
+		treg = TIMER_REG_TVAL;
+		break;
+
 	case SYS_AARCH32_CNTP_TVAL:
+	case SYS_CNTP_TVAL_EL02:
 		tmr = TIMER_PTIMER;
 		treg = TIMER_REG_TVAL;
 		break;
+
+	case SYS_CNTV_TVAL_EL02:
+		tmr = TIMER_VTIMER;
+		treg = TIMER_REG_TVAL;
+		break;
+
+	case SYS_CNTHP_TVAL_EL2:
+		tmr = TIMER_HPTIMER;
+		treg = TIMER_REG_TVAL;
+		break;
+
+	case SYS_CNTHV_TVAL_EL2:
+		tmr = TIMER_HVTIMER;
+		treg = TIMER_REG_TVAL;
+		break;
+
 	case SYS_CNTP_CTL_EL0:
+		if (is_hyp_ctxt(vcpu) && vcpu_el2_e2h_is_set(vcpu))
+			tmr = TIMER_HPTIMER;
+		else
+			tmr = TIMER_PTIMER;
+		treg = TIMER_REG_CTL;
+		break;
+
+	case SYS_CNTV_CTL_EL0:
+		if (is_hyp_ctxt(vcpu) && vcpu_el2_e2h_is_set(vcpu))
+			tmr = TIMER_HVTIMER;
+		else
+			tmr = TIMER_VTIMER;
+		treg = TIMER_REG_CTL;
+		break;
+
 	case SYS_AARCH32_CNTP_CTL:
+	case SYS_CNTP_CTL_EL02:
 		tmr = TIMER_PTIMER;
 		treg = TIMER_REG_CTL;
 		break;
+
+	case SYS_CNTV_CTL_EL02:
+		tmr = TIMER_VTIMER;
+		treg = TIMER_REG_CTL;
+		break;
+
+	case SYS_CNTHP_CTL_EL2:
+		tmr = TIMER_HPTIMER;
+		treg = TIMER_REG_CTL;
+		break;
+
+	case SYS_CNTHV_CTL_EL2:
+		tmr = TIMER_HVTIMER;
+		treg = TIMER_REG_CTL;
+		break;
+
 	case SYS_CNTP_CVAL_EL0:
+		if (is_hyp_ctxt(vcpu) && vcpu_el2_e2h_is_set(vcpu))
+			tmr = TIMER_HPTIMER;
+		else
+			tmr = TIMER_PTIMER;
+		treg = TIMER_REG_CVAL;
+		break;
+
+	case SYS_CNTV_CVAL_EL0:
+		if (is_hyp_ctxt(vcpu) && vcpu_el2_e2h_is_set(vcpu))
+			tmr = TIMER_HVTIMER;
+		else
+			tmr = TIMER_VTIMER;
+		treg = TIMER_REG_CVAL;
+		break;
+
 	case SYS_AARCH32_CNTP_CVAL:
+	case SYS_CNTP_CVAL_EL02:
 		tmr = TIMER_PTIMER;
 		treg = TIMER_REG_CVAL;
 		break;
+
+	case SYS_CNTV_CVAL_EL02:
+		tmr = TIMER_VTIMER;
+		treg = TIMER_REG_CVAL;
+		break;
+
+	case SYS_CNTHP_CVAL_EL2:
+		tmr = TIMER_HPTIMER;
+		treg = TIMER_REG_CVAL;
+		break;
+
+	case SYS_CNTHV_CVAL_EL2:
+		tmr = TIMER_HVTIMER;
+		treg = TIMER_REG_CVAL;
+		break;
+
 	case SYS_CNTPCT_EL0:
 	case SYS_CNTPCTSS_EL0:
+		if (is_hyp_ctxt(vcpu))
+			tmr = TIMER_HPTIMER;
+		else
+			tmr = TIMER_PTIMER;
+		treg = TIMER_REG_CNT;
+		break;
+
 	case SYS_AARCH32_CNTPCT:
 		tmr = TIMER_PTIMER;
 		treg = TIMER_REG_CNT;
 		break;
+
 	default:
 		print_sys_reg_msg(p, "%s", "Unhandled trapped timer register");
 		kvm_inject_undefined(vcpu);
@@ -2236,6 +2376,54 @@ static bool access_zcr_el2(struct kvm_vcpu *vcpu,
 	return true;
 }
 
+static bool access_gic_vtr(struct kvm_vcpu *vcpu,
+			   struct sys_reg_params *p,
+			   const struct sys_reg_desc *r)
+{
+	if (p->is_write)
+		return write_to_read_only(vcpu, p, r);
+
+	p->regval = kvm_vgic_global_state.ich_vtr_el2;
+
+	return true;
+}
+
+static bool access_gic_misr(struct kvm_vcpu *vcpu,
+			    struct sys_reg_params *p,
+			    const struct sys_reg_desc *r)
+{
+	if (p->is_write)
+		return write_to_read_only(vcpu, p, r);
+
+	p->regval = vgic_v3_get_misr(vcpu);
+
+	return true;
+}
+
+static bool access_gic_eisr(struct kvm_vcpu *vcpu,
+			    struct sys_reg_params *p,
+			    const struct sys_reg_desc *r)
+{
+	if (p->is_write)
+		return write_to_read_only(vcpu, p, r);
+
+	p->regval = vgic_v3_get_eisr(vcpu);
+
+	return true;
+}
+
+static bool access_gic_elrsr(struct kvm_vcpu *vcpu,
+			     struct sys_reg_params *p,
+			     const struct sys_reg_desc *r)
+{
+	if (p->is_write)
+		return write_to_read_only(vcpu, p, r);
+
+	p->regval = vgic_v3_get_elrsr(vcpu);
+
+	return true;
+}
+
 /*
  * Architected system registers.
  * Important: Must be sorted ascending by Op0, Op1, CRn, CRm, Op2
@@ -2641,6 +2829,10 @@ static const struct sys_reg_desc sys_reg_descs[] = {
 	{ SYS_DESC(SYS_CNTP_CTL_EL0), access_arch_timer },
 	{ SYS_DESC(SYS_CNTP_CVAL_EL0), access_arch_timer },
 
+	{ SYS_DESC(SYS_CNTV_TVAL_EL0), access_arch_timer },
+	{ SYS_DESC(SYS_CNTV_CTL_EL0), access_arch_timer },
+	{ SYS_DESC(SYS_CNTV_CVAL_EL0), access_arch_timer },
+
 	/* PMEVCNTRn_EL0 */
 	PMU_PMEVCNTR_EL0(0),
 	PMU_PMEVCNTR_EL0(1),
@@ -2770,27 +2962,626 @@ static const struct sys_reg_desc sys_reg_descs[] = {
 	EL2_REG(RVBAR_EL2, access_rw, reset_val, 0),
 	{ SYS_DESC(SYS_RMR_EL2), trap_undef },
 
+	EL2_REG_VNCR(ICH_AP0R0_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_AP0R1_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_AP0R2_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_AP0R3_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_AP1R0_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_AP1R1_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_AP1R2_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_AP1R3_EL2, reset_val, 0),
+
+	{ SYS_DESC(SYS_ICC_SRE_EL2), access_gic_sre },
+
+	EL2_REG_VNCR(ICH_HCR_EL2, reset_val, 0),
+	{ SYS_DESC(SYS_ICH_VTR_EL2), access_gic_vtr },
+	{ SYS_DESC(SYS_ICH_MISR_EL2), access_gic_misr },
+	{ SYS_DESC(SYS_ICH_EISR_EL2), access_gic_eisr },
+	{ SYS_DESC(SYS_ICH_ELRSR_EL2), access_gic_elrsr },
+	EL2_REG_VNCR(ICH_VMCR_EL2, reset_val, 0),
+
+	EL2_REG_VNCR(ICH_LR0_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR1_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR2_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR3_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR4_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR5_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR6_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR7_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR8_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR9_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR10_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR11_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR12_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR13_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR14_EL2, reset_val, 0),
+	EL2_REG_VNCR(ICH_LR15_EL2, reset_val, 0),
+
 	EL2_REG(CONTEXTIDR_EL2, access_rw, reset_val, 0),
 	EL2_REG(TPIDR_EL2, access_rw, reset_val, 0),
 
 	EL2_REG_VNCR(CNTVOFF_EL2, reset_val, 0),
 	EL2_REG(CNTHCTL_EL2, access_rw, reset_val, 0),
+	{ SYS_DESC(SYS_CNTHP_TVAL_EL2), access_arch_timer },
+	EL2_REG(CNTHP_CTL_EL2, access_arch_timer, reset_val, 0),
+	EL2_REG(CNTHP_CVAL_EL2, access_arch_timer, reset_val, 0),
+
+	{ SYS_DESC(SYS_CNTHV_TVAL_EL2), access_arch_timer },
+	EL2_REG(CNTHV_CTL_EL2, access_arch_timer, reset_val, 0),
+	EL2_REG(CNTHV_CVAL_EL2, access_arch_timer, reset_val, 0),
 
 	EL12_REG(CNTKCTL, access_rw, reset_val, 0),
 
+	{ SYS_DESC(SYS_CNTP_TVAL_EL02), access_arch_timer },
+	{ SYS_DESC(SYS_CNTP_CTL_EL02), access_arch_timer },
+	{ SYS_DESC(SYS_CNTP_CVAL_EL02), access_arch_timer },
+
+	{ SYS_DESC(SYS_CNTV_TVAL_EL02), access_arch_timer },
+	{ SYS_DESC(SYS_CNTV_CTL_EL02), access_arch_timer },
+	{ SYS_DESC(SYS_CNTV_CVAL_EL02), access_arch_timer },
+
 	EL2_REG(SP_EL2, NULL, reset_unknown, 0),
 };
+
+static bool handle_s1e01(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			 const struct sys_reg_desc *r)
+{
+	int sys_encoding = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
+
+	__kvm_at_s1e01(vcpu, sys_encoding, p->regval);
+
+	return true;
+}
+
+static bool handle_s1e2(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			const struct sys_reg_desc *r)
+{
+	int sys_encoding = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
+
+	__kvm_at_s1e2(vcpu, sys_encoding, p->regval);
+
+	return true;
+}
+
+static u64 setup_par_aborted(u32 esr)
+{
+	u64 par = 0;
+
+	/* S [9]: fault in the stage 2 translation */
+	par |= (1 << 9);
+	/* FST [6:1]: Fault status code  */
+	par |= (esr << 1);
+	/* F [0]: translation is aborted */
+	par |= SYS_PAR_EL1_F;
+
+	return par;
+}
+
+static u64 setup_par_completed(struct kvm_vcpu *vcpu, struct kvm_s2_trans *out)
+{
+	u64 par, vtcr_sh0;
+
+	/* F [0]: Translation is completed successfully */
+	par = 0;
+	/* ATTR [63:56] */
+	par |= out->upper_attr;
+	/* PA [47:12] */
+	par |= out->output & GENMASK_ULL(11, 0);
+	/* RES1 [11] */
+	par |= (1UL << 11);
+	/* SH [8:7]: Shareability attribute */
+	vtcr_sh0 = vcpu_read_sys_reg(vcpu, VTCR_EL2) & VTCR_EL2_SH0_MASK;
+	par |= (vtcr_sh0 >> VTCR_EL2_SH0_SHIFT) << 7;
+
+	return par;
+}
+
+static bool handle_s12(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+		       const struct sys_reg_desc *r, bool write)
+{
+	u64 par, va;
+	u32 esr, op;
+	phys_addr_t ipa;
+	struct kvm_s2_trans out;
+	int ret;
+
+	/* Do the stage-1 translation */
+	va = p->regval;
+	op = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
+	switch (op) {
+	case OP_AT_S12E1R:
+		op = OP_AT_S1E1R;
+		break;
+	case OP_AT_S12E1W:
+		op = OP_AT_S1E1W;
+		break;
+	case OP_AT_S12E0R:
+		op = OP_AT_S1E0R;
+		break;
+	case OP_AT_S12E0W:
+		op = OP_AT_S1E0W;
+		break;
+	default:
+		WARN_ON_ONCE(1);
+		return true;
+	}
+
+	__kvm_at_s1e01(vcpu, op, va);
+	par = vcpu_read_sys_reg(vcpu, PAR_EL1);
+	if (par & SYS_PAR_EL1_F) /* The stage-1 translation aborted */
+		return true;
+
+	/*
+	 * If we only have a single stage of translation (E2H=0 or
+	 * TGE=1), exit early. Same thing if {VM,DC}=={0,0}.
+	 */
+	if (!vcpu_el2_e2h_is_set(vcpu) || vcpu_el2_tge_is_set(vcpu) ||
+	    !(vcpu_read_sys_reg(vcpu, HCR_EL2) & (HCR_VM | HCR_DC)))
+		return true;
+
+	/* Do the stage-2 translation */
+	ipa = (par & GENMASK_ULL(47, 12)) | (va & GENMASK_ULL(11, 0));
+	out.esr = 0;
+	ret = kvm_walk_nested_s2(vcpu, ipa, &out);
+	if (ret < 0)
+		return false;
+
+	/* Check if the stage-2 PTW is aborted */
+	if (out.esr) {
+		esr = out.esr;
+		goto s2_trans_abort;
+	}
+
+	/* Check the access permission */
+	if ((!write && !out.readable) || (write && !out.writable)) {
+		esr = ESR_ELx_FSC_PERM;
+		esr |= out.level & 0x3;
+		goto s2_trans_abort;
+	}
+
+	vcpu_write_sys_reg(vcpu, setup_par_completed(vcpu, &out), PAR_EL1);
+	return true;
+
+s2_trans_abort:
+	vcpu_write_sys_reg(vcpu, setup_par_aborted(esr), PAR_EL1);
+	return true;
+}
+
+static bool handle_s12r(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			const struct sys_reg_desc *r)
+{
+	return handle_s12(vcpu, p, r, false);
+}
+
+static bool handle_s12w(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			const struct sys_reg_desc *r)
+{
+	return handle_s12(vcpu, p, r, true);
+}
+
+static bool kvm_supported_tlbi_s12_op(struct kvm_vcpu *vpcu, u32 instr)
+{
+	struct kvm *kvm = vpcu->kvm;
+	u8 CRm = sys_reg_CRm(instr);
+
+	if (sys_reg_CRn(instr) == TLBI_CRn_nXS &&
+	    !kvm_has_feat(kvm, ID_AA64ISAR1_EL1, XS, IMP))
+		return false;
+
+	if (CRm == TLBI_CRm_nROS &&
+	    !kvm_has_feat(kvm, ID_AA64ISAR0_EL1, TLB, OS))
+		return false;
+
+	return true;
+}
+
+static bool handle_alle1is(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			   const struct sys_reg_desc *r)
+{
+	u32 sys_encoding = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
+
+	if (!kvm_supported_tlbi_s12_op(vcpu, sys_encoding)) {
+		kvm_inject_undefined(vcpu);
+		return false;
+	}
+
+	write_lock(&vcpu->kvm->mmu_lock);
+
+	/*
+	 * Drop all shadow S2s, resulting in S1/S2 TLBIs for each of the
+	 * corresponding VMIDs.
+	 */
+	kvm_nested_s2_unmap(vcpu->kvm);
+
+	write_unlock(&vcpu->kvm->mmu_lock);
+
+	return true;
+}
+
+static bool kvm_supported_tlbi_ipas2_op(struct kvm_vcpu *vpcu, u32 instr)
+{
+	struct kvm *kvm = vpcu->kvm;
+	u8 CRm = sys_reg_CRm(instr);
+	u8 Op2 = sys_reg_Op2(instr);
+
+	if (sys_reg_CRn(instr) == TLBI_CRn_nXS &&
+	    !kvm_has_feat(kvm, ID_AA64ISAR1_EL1, XS, IMP))
+		return false;
+
+	if (CRm == TLBI_CRm_IPAIS && (Op2 == 2 || Op2 == 6) &&
+	    !kvm_has_feat(kvm, ID_AA64ISAR0_EL1, TLB, RANGE))
+		return false;
+
+	if (CRm == TLBI_CRm_IPAONS && (Op2 == 0 || Op2 == 4) &&
+	    !kvm_has_feat(kvm, ID_AA64ISAR0_EL1, TLB, OS))
+		return false;
+
+	if (CRm == TLBI_CRm_IPAONS && (Op2 == 3 || Op2 == 7) &&
+	    !kvm_has_feat(kvm, ID_AA64ISAR0_EL1, TLB, RANGE))
+		return false;
+
+	return true;
+}
+
+/* Only defined here as this is an internal "abstraction" */
+union tlbi_info {
+	struct {
+		u64	start;
+		u64	size;
+	} range;
+
+	struct {
+		u64	addr;
+	} ipa;
+
+	struct {
+		u64	addr;
+		u32	encoding;
+	} va;
+};
+
+static void s2_mmu_unmap_range(struct kvm_s2_mmu *mmu,
+			       const union tlbi_info *info)
+{
+	kvm_stage2_unmap_range(mmu, info->range.start, info->range.size);
+}
+
+static bool handle_vmalls12e1is(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+				const struct sys_reg_desc *r)
+{
+	u32 sys_encoding = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
+	u64 limit, vttbr;
+
+	if (!kvm_supported_tlbi_s12_op(vcpu, sys_encoding)) {
+		kvm_inject_undefined(vcpu);
+		return false;
+	}
+
+	vttbr = vcpu_read_sys_reg(vcpu, VTTBR_EL2);
+	limit = BIT_ULL(kvm_get_pa_bits(vcpu->kvm));
+
+	kvm_s2_mmu_iterate_by_vmid(vcpu->kvm, get_vmid(vttbr),
+				   &(union tlbi_info) {
+					   .range = {
+						   .start = 0,
+						   .size = limit,
+					   },
+				   },
+				   s2_mmu_unmap_range);
+
+	return true;
+}
+
+static bool handle_ripas2e1is(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			      const struct sys_reg_desc *r)
+{
+	u32 sys_encoding = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
+	u64 vttbr = vcpu_read_sys_reg(vcpu, VTTBR_EL2);
+	u64 base, range, tg, num, scale;
+	int shift;
+
+	if (!kvm_supported_tlbi_ipas2_op(vcpu, sys_encoding)) {
+		kvm_inject_undefined(vcpu);
+		return false;
+	}
+
+	/*
+	 * Because the shadow S2 structure doesn't necessarily reflect that
+	 * of the guest's S2 (different base granule size, for example), we
+	 * decide to ignore TTL and only use the described range.
+	 */
+	tg	= FIELD_GET(GENMASK(47, 46), p->regval);
+	scale	= FIELD_GET(GENMASK(45, 44), p->regval);
+	num	= FIELD_GET(GENMASK(43, 39), p->regval);
+	base	= p->regval & GENMASK(36, 0);
+
+	switch(tg) {
+	case 1:
+		shift = 12;
+		break;
+	case 2:
+		shift = 14;
+		break;
+	case 3:
+	default:		/* IMPDEF: handle tg==0 as 64k */
+		shift = 16;
+		break;
+	}
+
+	base <<= shift;
+	range = __TLBI_RANGE_PAGES(num, scale) << shift;
+
+	kvm_s2_mmu_iterate_by_vmid(vcpu->kvm, get_vmid(vttbr),
+				   &(union tlbi_info) {
+					   .range = {
+						   .start = base,
+						   .size = range,
+					   },
+				   },
+				   s2_mmu_unmap_range);
+
+	return true;
+}
+
+static void s2_mmu_unmap_ipa(struct kvm_s2_mmu *mmu,
+			     const union tlbi_info *info)
+{
+	unsigned long max_size;
+	u64 base_addr;
+
+	/*
+	 * We drop a number of things from the supplied value:
+	 *
+	 * - NS bit: we're non-secure only.
+	 *
+	 * - IPA[51:48]: We don't support 52bit IPA just yet...
+	 *
+	 * And of course, adjust the IPA to be on an actual address.
+	 */
+	base_addr = (info->ipa.addr & GENMASK_ULL(35, 0)) << 12;
+	max_size = compute_tlb_inval_range(mmu, info->ipa.addr);
+	base_addr &= ~(max_size - 1);
+
+	kvm_stage2_unmap_range(mmu, base_addr, max_size);
+}
+
+static bool handle_ipas2e1is(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			     const struct sys_reg_desc *r)
+{
+	u32 sys_encoding = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
+	u64 vttbr = vcpu_read_sys_reg(vcpu, VTTBR_EL2);
+
+	if (!kvm_supported_tlbi_ipas2_op(vcpu, sys_encoding)) {
+		kvm_inject_undefined(vcpu);
+		return false;
+	}
+
+	kvm_s2_mmu_iterate_by_vmid(vcpu->kvm, get_vmid(vttbr),
+				   &(union tlbi_info) {
+					   .ipa = {
+						   .addr = p->regval,
+					   },
+				   },
+				   s2_mmu_unmap_ipa);
+
+	return true;
+}
+
+static void s2_mmu_tlbi_s1e1(struct kvm_s2_mmu *mmu,
+			     const union tlbi_info *info)
+{
+	WARN_ON(__kvm_tlbi_s1e2(mmu, info->va.addr, info->va.encoding));
+}
+
+static bool handle_tlbi_el1(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			    const struct sys_reg_desc *r)
+{
+	u32 sys_encoding = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
+	u64 vttbr = vcpu_read_sys_reg(vcpu, VTTBR_EL2);
+
+	/*
+	 * If we're here, this is because we've trapped on a EL1 TLBI
+	 * instruction that affects the EL1 translation regime while
+	 * we're running in a context that doesn't allow us to let the
+	 * HW do its thing (aka vEL2):
+	 *
+	 * - HCR_EL2.E2H == 0 : a non-VHE guest
+	 * - HCR_EL2.{E2H,TGE} == { 1, 0 } : a VHE guest in guest mode
+	 *
+	 * We don't expect these helpers to ever be called when running
+	 * in a vEL1 context.
+	 */
+
+	WARN_ON(!vcpu_is_el2(vcpu));
+
+	if (!kvm_supported_tlbi_s1e1_op(vcpu, sys_encoding)) {
+		kvm_inject_undefined(vcpu);
+		return false;
+	}
+
+	kvm_s2_mmu_iterate_by_vmid(vcpu->kvm, get_vmid(vttbr),
+				   &(union tlbi_info) {
+					   .va = {
+						   .addr = p->regval,
+						   .encoding = sys_encoding,
+					   },
+				   },
+				   s2_mmu_tlbi_s1e1);
+
+	return true;
+}
+
+#define SYS_INSN(insn, access_fn)					\
+	{								\
+		SYS_DESC(OP_##insn),					\
+		.access = (access_fn),					\
+	}
 
 static struct sys_reg_desc sys_insn_descs[] = {
 	{ SYS_DESC(SYS_DC_ISW), access_dcsw },
 	{ SYS_DESC(SYS_DC_IGSW), access_dcgsw },
 	{ SYS_DESC(SYS_DC_IGDSW), access_dcgsw },
+
+	SYS_INSN(AT_S1E1R, handle_s1e01),
+	SYS_INSN(AT_S1E1W, handle_s1e01),
+	SYS_INSN(AT_S1E0R, handle_s1e01),
+	SYS_INSN(AT_S1E0W, handle_s1e01),
+	SYS_INSN(AT_S1E1RP, handle_s1e01),
+	SYS_INSN(AT_S1E1WP, handle_s1e01),
+
 	{ SYS_DESC(SYS_DC_CSW), access_dcsw },
 	{ SYS_DESC(SYS_DC_CGSW), access_dcgsw },
 	{ SYS_DESC(SYS_DC_CGDSW), access_dcgsw },
 	{ SYS_DESC(SYS_DC_CISW), access_dcsw },
 	{ SYS_DESC(SYS_DC_CIGSW), access_dcgsw },
 	{ SYS_DESC(SYS_DC_CIGDSW), access_dcgsw },
+
+	SYS_INSN(TLBI_VMALLE1OS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAE1OS, handle_tlbi_el1),
+	SYS_INSN(TLBI_ASIDE1OS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAAE1OS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VALE1OS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAALE1OS, handle_tlbi_el1),
+
+	SYS_INSN(TLBI_RVAE1IS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVAAE1IS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVALE1IS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVAALE1IS, handle_tlbi_el1),
+
+	SYS_INSN(TLBI_VMALLE1IS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAE1IS, handle_tlbi_el1),
+	SYS_INSN(TLBI_ASIDE1IS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAAE1IS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VALE1IS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAALE1IS, handle_tlbi_el1),
+
+	SYS_INSN(TLBI_RVAE1OS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVAAE1OS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVALE1OS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVAALE1OS, handle_tlbi_el1),
+
+	SYS_INSN(TLBI_RVAE1, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVAAE1, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVALE1, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVAALE1, handle_tlbi_el1),
+
+	SYS_INSN(TLBI_VMALLE1, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAE1, handle_tlbi_el1),
+	SYS_INSN(TLBI_ASIDE1, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAAE1, handle_tlbi_el1),
+	SYS_INSN(TLBI_VALE1, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAALE1, handle_tlbi_el1),
+
+	SYS_INSN(TLBI_VMALLE1OSNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAE1OSNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_ASIDE1OSNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAAE1OSNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VALE1OSNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAALE1OSNXS, handle_tlbi_el1),
+
+	SYS_INSN(TLBI_RVAE1ISNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVAAE1ISNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVALE1ISNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVAALE1ISNXS, handle_tlbi_el1),
+
+	SYS_INSN(TLBI_VMALLE1ISNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAE1ISNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_ASIDE1ISNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAAE1ISNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VALE1ISNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAALE1ISNXS, handle_tlbi_el1),
+
+	SYS_INSN(TLBI_RVAE1OSNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVAAE1OSNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVALE1OSNXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVAALE1OSNXS, handle_tlbi_el1),
+
+	SYS_INSN(TLBI_RVAE1NXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVAAE1NXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVALE1NXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_RVAALE1NXS, handle_tlbi_el1),
+
+	SYS_INSN(TLBI_VMALLE1NXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAE1NXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_ASIDE1NXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAAE1NXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VALE1NXS, handle_tlbi_el1),
+	SYS_INSN(TLBI_VAALE1NXS, handle_tlbi_el1),
+
+	SYS_INSN(AT_S1E2R, handle_s1e2),
+	SYS_INSN(AT_S1E2W, handle_s1e2),
+	SYS_INSN(AT_S12E1R, handle_s12r),
+	SYS_INSN(AT_S12E1W, handle_s12w),
+	SYS_INSN(AT_S12E0R, handle_s12r),
+	SYS_INSN(AT_S12E0W, handle_s12w),
+
+	SYS_INSN(TLBI_IPAS2E1IS, handle_ipas2e1is),
+	SYS_INSN(TLBI_RIPAS2E1IS, handle_ripas2e1is),
+	SYS_INSN(TLBI_IPAS2LE1IS, handle_ipas2e1is),
+	SYS_INSN(TLBI_RIPAS2LE1IS, handle_ripas2e1is),
+
+	SYS_INSN(TLBI_ALLE2OS, trap_undef),
+	SYS_INSN(TLBI_VAE2OS, trap_undef),
+	SYS_INSN(TLBI_ALLE1OS, handle_alle1is),
+	SYS_INSN(TLBI_VALE2OS, trap_undef),
+	SYS_INSN(TLBI_VMALLS12E1OS, handle_vmalls12e1is),
+
+	SYS_INSN(TLBI_RVAE2IS, trap_undef),
+	SYS_INSN(TLBI_RVALE2IS, trap_undef),
+
+	SYS_INSN(TLBI_ALLE1IS, handle_alle1is),
+	SYS_INSN(TLBI_VMALLS12E1IS, handle_vmalls12e1is),
+	SYS_INSN(TLBI_IPAS2E1OS, handle_ipas2e1is),
+	SYS_INSN(TLBI_IPAS2E1, handle_ipas2e1is),
+	SYS_INSN(TLBI_RIPAS2E1, handle_ripas2e1is),
+	SYS_INSN(TLBI_RIPAS2E1OS, handle_ripas2e1is),
+	SYS_INSN(TLBI_IPAS2LE1OS, handle_ipas2e1is),
+	SYS_INSN(TLBI_IPAS2LE1, handle_ipas2e1is),
+	SYS_INSN(TLBI_RIPAS2LE1, handle_ripas2e1is),
+	SYS_INSN(TLBI_RIPAS2LE1OS, handle_ripas2e1is),
+	SYS_INSN(TLBI_RVAE2OS, trap_undef),
+	SYS_INSN(TLBI_RVALE2OS, trap_undef),
+	SYS_INSN(TLBI_RVAE2, trap_undef),
+	SYS_INSN(TLBI_RVALE2, trap_undef),
+	SYS_INSN(TLBI_ALLE1, handle_alle1is),
+	SYS_INSN(TLBI_VMALLS12E1, handle_vmalls12e1is),
+
+	SYS_INSN(TLBI_IPAS2E1ISNXS, handle_ipas2e1is),
+	SYS_INSN(TLBI_RIPAS2E1ISNXS, handle_ripas2e1is),
+	SYS_INSN(TLBI_IPAS2LE1ISNXS, handle_ipas2e1is),
+	SYS_INSN(TLBI_RIPAS2LE1ISNXS, handle_ripas2e1is),
+
+	SYS_INSN(TLBI_ALLE2OSNXS, trap_undef),
+	SYS_INSN(TLBI_VAE2OSNXS, trap_undef),
+	SYS_INSN(TLBI_ALLE1OSNXS, handle_alle1is),
+	SYS_INSN(TLBI_VALE2OSNXS, trap_undef),
+	SYS_INSN(TLBI_VMALLS12E1OSNXS, handle_vmalls12e1is),
+
+	SYS_INSN(TLBI_RVAE2ISNXS, trap_undef),
+	SYS_INSN(TLBI_RVALE2ISNXS, trap_undef),
+	SYS_INSN(TLBI_ALLE2ISNXS, trap_undef),
+	SYS_INSN(TLBI_VAE2ISNXS, trap_undef),
+
+	SYS_INSN(TLBI_ALLE1ISNXS, handle_alle1is),
+	SYS_INSN(TLBI_VALE2ISNXS, trap_undef),
+	SYS_INSN(TLBI_VMALLS12E1ISNXS, handle_vmalls12e1is),
+	SYS_INSN(TLBI_IPAS2E1OSNXS, handle_ipas2e1is),
+	SYS_INSN(TLBI_IPAS2E1NXS, handle_ipas2e1is),
+	SYS_INSN(TLBI_RIPAS2E1NXS, handle_ripas2e1is),
+	SYS_INSN(TLBI_RIPAS2E1OSNXS, handle_ripas2e1is),
+	SYS_INSN(TLBI_IPAS2LE1OSNXS, handle_ipas2e1is),
+	SYS_INSN(TLBI_IPAS2LE1NXS, handle_ipas2e1is),
+	SYS_INSN(TLBI_RIPAS2LE1NXS, handle_ripas2e1is),
+	SYS_INSN(TLBI_RIPAS2LE1OSNXS, handle_ripas2e1is),
+	SYS_INSN(TLBI_RVAE2OSNXS, trap_undef),
+	SYS_INSN(TLBI_RVALE2OSNXS, trap_undef),
+	SYS_INSN(TLBI_RVAE2NXS, trap_undef),
+	SYS_INSN(TLBI_RVALE2NXS, trap_undef),
+	SYS_INSN(TLBI_ALLE2NXS, trap_undef),
+	SYS_INSN(TLBI_VAE2NXS, trap_undef),
+	SYS_INSN(TLBI_ALLE1NXS, handle_alle1is),
+	SYS_INSN(TLBI_VALE2NXS, trap_undef),
+	SYS_INSN(TLBI_VMALLS12E1NXS, handle_vmalls12e1is),
 };
 
 static const struct sys_reg_desc *first_idreg;
@@ -4139,6 +4930,10 @@ void kvm_init_sysreg(struct kvm_vcpu *vcpu)
 						HFGITR_EL2_TLBIRVALE1OS	|
 						HFGITR_EL2_TLBIRVAAE1OS	|
 						HFGITR_EL2_TLBIRVAE1OS);
+
+	if (!kvm_has_feat(kvm, ID_AA64MMFR1_EL1, PAN, PAN2))
+		kvm->arch.fgu[HFGITR_GROUP] |= (HFGITR_EL2_ATS1E1RP |
+						HFGITR_EL2_ATS1E1WP);
 
 	if (!kvm_has_feat(kvm, ID_AA64MMFR3_EL1, S1PIE, IMP))
 		kvm->arch.fgu[HFGxTR_GROUP] |= (HFGxTR_EL2_nPIRE0_EL1 |

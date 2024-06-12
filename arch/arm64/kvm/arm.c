@@ -170,6 +170,8 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	mutex_unlock(&kvm->lock);
 #endif
 
+	kvm_init_nested(kvm);
+
 	ret = kvm_share_hyp(kvm, kvm + 1);
 	if (ret)
 		return ret;
@@ -370,6 +372,9 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 	case KVM_CAP_ARM_EL1_32BIT:
 		r = cpus_have_final_cap(ARM64_HAS_32BIT_EL1);
 		break;
+	case KVM_CAP_ARM_EL2:
+		r = cpus_have_final_cap(ARM64_HAS_NESTED_VIRT);
+		break;
 	case KVM_CAP_GUEST_DEBUG_HW_BPS:
 		r = get_num_brps();
 		break;
@@ -551,6 +556,9 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	struct kvm_s2_mmu *mmu;
 	int *last_ran;
 
+	if (vcpu_has_nv(vcpu))
+		kvm_vcpu_load_hw_mmu(vcpu);
+
 	mmu = vcpu->arch.hw_mmu;
 	last_ran = this_cpu_ptr(mmu->last_vcpu_ran);
 
@@ -570,8 +578,8 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 
 	vcpu->cpu = cpu;
 
-	kvm_vgic_load(vcpu);
 	kvm_timer_vcpu_load(vcpu);
+	kvm_vgic_load(vcpu);
 	if (has_vhe())
 		kvm_vcpu_load_vhe(vcpu);
 	kvm_arch_vcpu_load_fp(vcpu);
@@ -601,6 +609,8 @@ void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
 	kvm_timer_vcpu_put(vcpu);
 	kvm_vgic_put(vcpu);
 	kvm_vcpu_pmu_restore_host(vcpu);
+	if (vcpu_has_nv(vcpu))
+		kvm_vcpu_put_hw_mmu(vcpu);
 	kvm_arm_vmid_clear_active();
 
 	vcpu_clear_on_unsupported_cpu(vcpu);
@@ -791,6 +801,10 @@ int kvm_arch_vcpu_run_pid_change(struct kvm_vcpu *vcpu)
 		ret = kvm_init_nv_sysregs(vcpu->kvm);
 		if (ret)
 			return ret;
+
+		ret = kvm_vgic_vcpu_nv_init(vcpu);
+		if (ret)
+			return ret;
 	}
 
 	/*
@@ -894,6 +908,15 @@ static void kvm_vcpu_sleep(struct kvm_vcpu *vcpu)
 void kvm_vcpu_wfi(struct kvm_vcpu *vcpu)
 {
 	/*
+	 * If we're in nested state and the guest hypervisor does not trap
+	 * WFI, we're in a bit of trouble, as we don't have a good handle
+	 * on the interrupts that are pending for the guest yet. Revisit
+	 * this at some point.
+	 */
+	if (vgic_state_is_nested(vcpu))
+		return;
+
+	/*
 	 * Sync back the state of the GIC CPU interface so that we have
 	 * the latest PMR and group enables. This ensures that
 	 * kvm_arch_vcpu_runnable has up-to-date data to decide whether
@@ -996,6 +1019,8 @@ static int check_vcpu_requests(struct kvm_vcpu *vcpu)
 
 		if (kvm_dirty_ring_check_request(vcpu))
 			return 0;
+
+		check_nested_vcpu_requests(vcpu);
 	}
 
 	return 1;
@@ -1133,6 +1158,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 		 * preserved on VMID roll-over if the task was preempted,
 		 * making a thread's VMID inactive. So we need to call
 		 * kvm_arm_vmid_update() in non-premptible context.
+		 *
+		 * Note that this must happen after the check_vcpu_request()
+		 * call to pick the correct s2_mmu structure, as a pending
+		 * nested exception (IRQ, for example) can trigger a change
+		 * in translation regime.
 		 */
 		if (kvm_arm_vmid_update(&vcpu->arch.hw_mmu->vmid) &&
 		    has_vhe())
@@ -1207,6 +1237,9 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 		 */
 		if (static_branch_unlikely(&userspace_irqchip_in_use))
 			kvm_timer_sync_user(vcpu);
+
+		if (vcpu_has_nv(vcpu))
+			kvm_timer_sync_nested(vcpu);
 
 		kvm_arch_vcpu_ctxsync_fp(vcpu);
 
@@ -1453,6 +1486,10 @@ static int kvm_setup_vcpu(struct kvm_vcpu *vcpu)
 	 */
 	if (kvm_vcpu_has_pmu(vcpu) && !kvm->arch.arm_pmu)
 		ret = kvm_arm_set_default_pmu(kvm);
+
+	/* Prepare for nested if required */
+	if (!ret && vcpu_has_nv(vcpu))
+		ret = kvm_vcpu_init_nested(vcpu);
 
 	return ret;
 }
