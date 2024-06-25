@@ -15,13 +15,12 @@
 #include <asm/exception.h>
 #include <asm/kvm_asm.h>
 #include <asm/kvm_emulate.h>
+#include <asm/kvm_hypercalls.h>
 #include <asm/kvm_mmu.h>
 #include <asm/kvm_nested.h>
 #include <asm/debug-monitors.h>
 #include <asm/stacktrace/nvhe.h>
 #include <asm/traps.h>
-
-#include <kvm/arm_hypercalls.h>
 
 #define CREATE_TRACE_POINTS
 #include "trace_handle_exit.h"

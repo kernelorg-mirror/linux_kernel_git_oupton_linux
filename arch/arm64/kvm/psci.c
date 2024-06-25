@@ -12,9 +12,8 @@
 
 #include <asm/cputype.h>
 #include <asm/kvm_emulate.h>
-
-#include <kvm/arm_psci.h>
-#include <kvm/arm_hypercalls.h>
+#include <asm/kvm_hypercalls.h>
+#include <asm/kvm_psci.h>
 
 /*
  * This is an implementation of the Power State Coordination Interface

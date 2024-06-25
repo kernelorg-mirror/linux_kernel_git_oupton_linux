@@ -5,6 +5,7 @@
 
 struct kvm;
 struct kvm_async_pf;
+struct kvm_device_attr;
 struct kvm_device_ops;
 struct kvm_gfn_range;
 struct kvm_interrupt;

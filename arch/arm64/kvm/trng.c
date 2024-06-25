@@ -5,8 +5,7 @@
 #include <linux/kvm_host.h>
 
 #include <asm/kvm_emulate.h>
-
-#include <kvm/arm_hypercalls.h>
+#include <asm/kvm_hypercalls.h>
 
 #define ARM_SMCCC_TRNG_VERSION_1_0	0x10000UL
 

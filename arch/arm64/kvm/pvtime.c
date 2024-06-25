@@ -6,9 +6,8 @@
 #include <linux/sched/stat.h>
 
 #include <asm/kvm_mmu.h>
+#include <asm/kvm_hypercalls.h>
 #include <asm/pvclock-abi.h>
-
-#include <kvm/arm_hypercalls.h>
 
 void kvm_update_stolen_time(struct kvm_vcpu *vcpu)
 {

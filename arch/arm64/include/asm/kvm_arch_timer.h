@@ -9,6 +9,7 @@
 
 #include <linux/clocksource.h>
 #include <linux/hrtimer.h>
+#include <linux/kvm_types.h>
 
 enum kvm_arch_timers {
 	TIMER_PTIMER,
