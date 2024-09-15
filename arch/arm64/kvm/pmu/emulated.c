@@ -15,6 +15,8 @@
 #include <kvm/arm_pmu.h>
 #include <kvm/arm_vgic.h>
 
+#include "pmu.h"
+
 #define PERF_ATTR_CFG1_COUNTER_64BIT	BIT(0)
 
 DEFINE_STATIC_KEY_FALSE(kvm_arm_pmu_available);
@@ -99,16 +101,6 @@ static bool kvm_pmu_counter_can_chain(struct kvm_pmc *pmc)
 {
 	return (!(pmc->idx & 1) && (pmc->idx + 1) < ARMV8_PMU_CYCLE_IDX &&
 		!kvm_pmc_has_64bit_overflow(pmc));
-}
-
-static u32 counter_index_to_reg(u64 idx)
-{
-	return (idx == ARMV8_PMU_CYCLE_IDX) ? PMCCNTR_EL0 : PMEVCNTR0_EL0 + idx;
-}
-
-static u32 counter_index_to_evtreg(u64 idx)
-{
-	return (idx == ARMV8_PMU_CYCLE_IDX) ? PMCCFILTR_EL0 : PMEVTYPER0_EL0 + idx;
 }
 
 static u64 kvm_pmu_get_pmc_value(struct kvm_pmc *pmc)
