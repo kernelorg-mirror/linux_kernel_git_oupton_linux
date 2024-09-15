@@ -15,5 +15,7 @@ static inline u32 counter_index_to_evtreg(unsigned int idx)
 
 u64 __kvm_read_cpu_evtyper(unsigned int idx);
 void __kvm_write_cpu_evtyper(unsigned int idx, u64 val);
+u64 __kvm_read_cpu_evcntr(unsigned int idx);
+void __kvm_write_cpu_evcntr(unsigned int idx, u64 val);
 
 #endif /* __ARM64_KVM_PMU_H__ */

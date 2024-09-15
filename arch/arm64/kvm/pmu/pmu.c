@@ -71,7 +71,7 @@ void kvm_clr_pmu_events(u32 clr)
 u64 __kvm_read_cpu_evtyper(unsigned int idx)
 {
 	if (idx == ARMV8_PMU_CYCLE_IDX)
-		return read_pmcfiltr();
+		return read_pmccfiltr();
 
 	return read_pmevtypern(idx);
 }
@@ -86,6 +86,30 @@ void __kvm_write_cpu_evtyper(unsigned int idx, u64 val)
 		write_pmccfiltr(val);
 	else
 		write_pmevtypern(idx, val);
+}
+
+/*
+ * Read a value direct from PMEVCNTR<idx> where idx is 0-30
+ * or PMCCNTR_EL0 where idx is ARMV8_PMU_CYCLE_IDX (31).
+ */
+u64 __kvm_read_cpu_evcntr(unsigned int idx)
+{
+	if (idx == ARMV8_PMU_CYCLE_IDX)
+		return read_pmccntr();
+
+	return read_pmevcntrn(idx);
+}
+
+/*
+ * Write a value direct to PMEVCNTR<idx> where idx is 0-30
+ * or PMCCNTR_EL0 where idx is ARMV8_PMU_CYCLE_IDX (31).
+ */
+void __kvm_write_cpu_evcntr(unsigned int idx, u64 val)
+{
+	if (idx == ARMV8_PMU_CYCLE_IDX)
+		write_pmccntr(val);
+	else
+		write_pmevcntrn(idx, val);
 }
 
 /*
