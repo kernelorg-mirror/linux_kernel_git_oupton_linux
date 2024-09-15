@@ -64,79 +64,28 @@ void kvm_clr_pmu_events(u32 clr)
 	pmu->events_guest &= ~clr;
 }
 
-#define PMEVTYPER_READ_CASE(idx)				\
-	case idx:						\
-		return read_sysreg(pmevtyper##idx##_el0)
-
-#define PMEVTYPER_WRITE_CASE(idx)				\
-	case idx:						\
-		write_sysreg(val, pmevtyper##idx##_el0);	\
-		break
-
-#define PMEVTYPER_CASES(readwrite)				\
-	PMEVTYPER_##readwrite##_CASE(0);			\
-	PMEVTYPER_##readwrite##_CASE(1);			\
-	PMEVTYPER_##readwrite##_CASE(2);			\
-	PMEVTYPER_##readwrite##_CASE(3);			\
-	PMEVTYPER_##readwrite##_CASE(4);			\
-	PMEVTYPER_##readwrite##_CASE(5);			\
-	PMEVTYPER_##readwrite##_CASE(6);			\
-	PMEVTYPER_##readwrite##_CASE(7);			\
-	PMEVTYPER_##readwrite##_CASE(8);			\
-	PMEVTYPER_##readwrite##_CASE(9);			\
-	PMEVTYPER_##readwrite##_CASE(10);			\
-	PMEVTYPER_##readwrite##_CASE(11);			\
-	PMEVTYPER_##readwrite##_CASE(12);			\
-	PMEVTYPER_##readwrite##_CASE(13);			\
-	PMEVTYPER_##readwrite##_CASE(14);			\
-	PMEVTYPER_##readwrite##_CASE(15);			\
-	PMEVTYPER_##readwrite##_CASE(16);			\
-	PMEVTYPER_##readwrite##_CASE(17);			\
-	PMEVTYPER_##readwrite##_CASE(18);			\
-	PMEVTYPER_##readwrite##_CASE(19);			\
-	PMEVTYPER_##readwrite##_CASE(20);			\
-	PMEVTYPER_##readwrite##_CASE(21);			\
-	PMEVTYPER_##readwrite##_CASE(22);			\
-	PMEVTYPER_##readwrite##_CASE(23);			\
-	PMEVTYPER_##readwrite##_CASE(24);			\
-	PMEVTYPER_##readwrite##_CASE(25);			\
-	PMEVTYPER_##readwrite##_CASE(26);			\
-	PMEVTYPER_##readwrite##_CASE(27);			\
-	PMEVTYPER_##readwrite##_CASE(28);			\
-	PMEVTYPER_##readwrite##_CASE(29);			\
-	PMEVTYPER_##readwrite##_CASE(30)
-
 /*
  * Read a value direct from PMEVTYPER<idx> where idx is 0-30
  * or PMCCFILTR_EL0 where idx is ARMV8_PMU_CYCLE_IDX (31).
  */
-static u64 kvm_vcpu_pmu_read_evtype_direct(int idx)
+u64 __kvm_read_cpu_evtyper(unsigned int idx)
 {
-	switch (idx) {
-	PMEVTYPER_CASES(READ);
-	case ARMV8_PMU_CYCLE_IDX:
-		return read_sysreg(pmccfiltr_el0);
-	default:
-		WARN_ON(1);
-	}
+	if (idx == ARMV8_PMU_CYCLE_IDX)
+		return read_pmcfiltr();
 
-	return 0;
+	return read_pmevtypern(idx);
 }
 
 /*
  * Write a value direct to PMEVTYPER<idx> where idx is 0-30
  * or PMCCFILTR_EL0 where idx is ARMV8_PMU_CYCLE_IDX (31).
  */
-static void kvm_vcpu_pmu_write_evtype_direct(int idx, u32 val)
+void __kvm_write_cpu_evtyper(unsigned int idx, u64 val)
 {
-	switch (idx) {
-	PMEVTYPER_CASES(WRITE);
-	case ARMV8_PMU_CYCLE_IDX:
-		write_sysreg(val, pmccfiltr_el0);
-		break;
-	default:
-		WARN_ON(1);
-	}
+	if (idx == ARMV8_PMU_CYCLE_IDX)
+		write_pmccfiltr(val);
+	else
+		write_pmevtypern(idx, val);
 }
 
 /*
@@ -148,9 +97,9 @@ static void kvm_vcpu_pmu_enable_el0(unsigned long events)
 	u32 counter;
 
 	for_each_set_bit(counter, &events, 32) {
-		typer = kvm_vcpu_pmu_read_evtype_direct(counter);
+		typer = __kvm_read_cpu_evtyper(counter);
 		typer &= ~ARMV8_PMU_EXCLUDE_EL0;
-		kvm_vcpu_pmu_write_evtype_direct(counter, typer);
+		__kvm_write_cpu_evtyper(counter, typer);
 	}
 }
 
@@ -163,9 +112,9 @@ static void kvm_vcpu_pmu_disable_el0(unsigned long events)
 	u32 counter;
 
 	for_each_set_bit(counter, &events, 32) {
-		typer = kvm_vcpu_pmu_read_evtype_direct(counter);
+		typer = __kvm_read_cpu_evtyper(counter);
 		typer |= ARMV8_PMU_EXCLUDE_EL0;
-		kvm_vcpu_pmu_write_evtype_direct(counter, typer);
+		__kvm_write_cpu_evtyper(counter, typer);
 	}
 }
 
