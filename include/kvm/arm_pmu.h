@@ -96,6 +96,10 @@ int kvm_arm_set_default_pmu(struct kvm *kvm);
 u8 kvm_arm_pmu_get_max_counters(struct kvm *kvm);
 
 u64 kvm_vcpu_read_pmcr(struct kvm_vcpu *vcpu);
+
+void kvm_direct_pmu_load(struct kvm_vcpu *vcpu);
+void kvm_direct_pmu_put(struct kvm_vcpu *vcpu);
+
 #else
 struct kvm_pmu {
 };
@@ -186,6 +190,9 @@ static inline u64 kvm_vcpu_read_pmcr(struct kvm_vcpu *vcpu)
 {
 	return 0;
 }
+
+static inline void kvm_direct_pmu_load(struct kvm_vcpu *vcpu) {}
+static inline void kvm_direct_pmu_put(struct kvm_vcpu *vcpu) {}
 
 #endif
 
