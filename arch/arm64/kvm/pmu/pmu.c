@@ -6,6 +6,8 @@
 #include <linux/kvm_host.h>
 #include <linux/perf_event.h>
 
+#include "pmu.h"
+
 static DEFINE_PER_CPU(struct kvm_pmu_events, kvm_pmu_events);
 
 /*
