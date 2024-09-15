@@ -13,8 +13,25 @@
 static u64 __effective_pmevtyper(struct kvm_vcpu *vcpu, unsigned int idx)
 {
 	u64 val = __vcpu_sys_reg(vcpu, counter_index_to_evtreg(idx));
+	u64 event;
 
-	/* TODO: Enforce event filter */
+	if (idx == ARMV8_PMU_CYCLE_IDX)
+		event = ARMV8_PMUV3_PERFCTR_CPU_CYCLES;
+	else
+		event = val & kvm_pmu_event_mask(vcpu->kvm);
+
+	/*
+	 * Lame. The guest tried to count an event we're filtering. Force it
+	 * to use a known event (SW_INCR) and filter it all guest ELs.
+	 */
+	if (kvm_pmu_event_filtered(vcpu->kvm, event)) {
+		val &= ~(kvm_pmu_event_mask(vcpu->kvm) |
+			 ARMV8_PMU_EXCLUDE_NS_EL0 |
+			 ARMV8_PMU_EXCLUDE_NS_EL1);
+		val |= ARMV8_PMU_EXCLUDE_EL0 |
+		       ARMV8_PMU_EXCLUDE_EL1;
+	}
+
 	return val;
 }
 
