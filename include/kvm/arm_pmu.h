@@ -45,8 +45,8 @@ static __always_inline bool kvm_arm_support_pmu_v3(void)
 }
 
 #define kvm_arm_pmu_irq_initialized(v)	((v)->arch.pmu.irq_num >= VGIC_NR_SGIS)
-u64 kvm_pmu_get_counter_value(struct kvm_vcpu *vcpu, u64 select_idx);
-void kvm_pmu_set_counter_value(struct kvm_vcpu *vcpu, u64 select_idx, u64 val);
+u64 kvm_pmu_read_evcntr(struct kvm_vcpu *vcpu, unsigned int idx);
+void kvm_pmu_write_evcntr(struct kvm_vcpu *vcpu, unsigned int idx, u64 val);
 u64 kvm_pmu_valid_counter_mask(struct kvm_vcpu *vcpu);
 u64 kvm_pmu_get_pmceid(struct kvm_vcpu *vcpu, bool pmceid1);
 void kvm_pmu_vcpu_init(struct kvm_vcpu *vcpu);
@@ -112,13 +112,11 @@ static inline bool kvm_arm_support_pmu_v3(void)
 }
 
 #define kvm_arm_pmu_irq_initialized(v)	(false)
-static inline u64 kvm_pmu_get_counter_value(struct kvm_vcpu *vcpu,
-					    u64 select_idx)
+static inline u64 kvm_pmu_read_evcntr(struct kvm_vcpu *vcpu, unsigned int idx)
 {
 	return 0;
 }
-static inline void kvm_pmu_set_counter_value(struct kvm_vcpu *vcpu,
-					     u64 select_idx, u64 val) {}
+static inline void kvm_pmu_write_evcntr(struct kvm_vcpu *vcpu, unsigned int idx, u64 val) {}
 static inline u64 kvm_pmu_valid_counter_mask(struct kvm_vcpu *vcpu)
 {
 	return 0;

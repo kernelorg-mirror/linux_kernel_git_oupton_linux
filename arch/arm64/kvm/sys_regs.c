@@ -1030,7 +1030,7 @@ static int get_pmu_evcntr(struct kvm_vcpu *vcpu, const struct sys_reg_desc *r,
 		/* PMEVCNTRn_EL0 */
 		idx = ((r->CRm & 3) << 3) | (r->Op2 & 7);
 
-	*val = kvm_pmu_get_counter_value(vcpu, idx);
+	*val = kvm_pmu_read_evcntr(vcpu, idx);
 	return 0;
 }
 
@@ -1079,9 +1079,9 @@ static bool access_pmu_evcntr(struct kvm_vcpu *vcpu,
 		if (pmu_access_el0_disabled(vcpu))
 			return false;
 
-		kvm_pmu_set_counter_value(vcpu, idx, p->regval);
+		kvm_pmu_write_evcntr(vcpu, idx, p->regval);
 	} else {
-		p->regval = kvm_pmu_get_counter_value(vcpu, idx);
+		p->regval = kvm_pmu_read_evcntr(vcpu, idx);
 	}
 
 	return true;

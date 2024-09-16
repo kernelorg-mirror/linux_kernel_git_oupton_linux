@@ -120,3 +120,19 @@ void direct_pmu_write_evtyper(struct kvm_vcpu *vcpu, u64 val, unsigned int idx)
 
 	__kvm_write_cpu_evtyper(idx, __effective_pmevtyper(vcpu, idx));
 }
+
+void direct_pmu_write_evcntr(struct kvm_vcpu *vcpu, unsigned int idx, u64 val)
+{
+	if (!direct_pmu_on_cpu(vcpu))
+		kvm_direct_pmu_load(vcpu);
+
+	__kvm_write_cpu_evcntr(idx, val);
+}
+
+u64 direct_pmu_read_evcntr(struct kvm_vcpu *vcpu, unsigned int idx)
+{
+	if (!direct_pmu_on_cpu(vcpu))
+		kvm_direct_pmu_load(vcpu);
+
+	return __kvm_read_cpu_evcntr(idx);
+}

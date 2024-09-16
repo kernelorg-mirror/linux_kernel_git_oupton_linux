@@ -263,3 +263,19 @@ void kvm_pmu_write_evtyper(struct kvm_vcpu *vcpu, u64 val, unsigned int idx)
 	else
 		emulated_pmu_write_evtyper(vcpu, val, idx);
 }
+
+void kvm_pmu_write_evcntr(struct kvm_vcpu *vcpu, unsigned int idx, u64 val)
+{
+	if (kvm_has_direct_pmu(vcpu->kvm))
+		direct_pmu_write_evcntr(vcpu, val, idx);
+	else
+		emulated_pmu_write_evtyper(vcpu, val, idx);
+}
+
+u64 kvm_pmu_read_evcntr(struct kvm_vcpu *vcpu, unsigned int idx)
+{
+	if (kvm_has_direct_pmu(vcpu->kvm))
+		return direct_pmu_read_evcntr(vcpu, idx);
+
+	return emulated_pmu_read_evcntr(vcpu, idx);
+}

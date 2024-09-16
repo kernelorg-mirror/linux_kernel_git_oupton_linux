@@ -142,17 +142,17 @@ static void kvm_pmu_set_pmc_value(struct kvm_pmc *pmc, u64 val, bool force)
 }
 
 /**
- * kvm_pmu_set_counter_value - set PMU counter value
+ * emulated_pmu_write_evcntr - set PMU counter value
  * @vcpu: The vcpu pointer
  * @select_idx: The counter index
  * @val: The counter value
  */
-void kvm_pmu_set_counter_value(struct kvm_vcpu *vcpu, u64 select_idx, u64 val)
+void emulated_pmu_write_evcntr(struct kvm_vcpu *vcpu, unsigned int idx, u64 val)
 {
 	if (!kvm_vcpu_has_pmu(vcpu))
 		return;
 
-	kvm_pmu_set_pmc_value(kvm_vcpu_idx_to_pmc(vcpu, select_idx), val, false);
+	kvm_pmu_set_pmc_value(kvm_vcpu_idx_to_pmc(vcpu, idx), val, false);
 }
 
 /**
@@ -539,7 +539,7 @@ void kvm_pmu_handle_pmcr(struct kvm_vcpu *vcpu, u64 val)
 	}
 
 	if (val & ARMV8_PMU_PMCR_C)
-		kvm_pmu_set_counter_value(vcpu, ARMV8_PMU_CYCLE_IDX, 0);
+		emulated_pmu_write_evcntr(vcpu, ARMV8_PMU_CYCLE_IDX, 0);
 
 	if (val & ARMV8_PMU_PMCR_P) {
 		unsigned long mask = kvm_pmu_valid_counter_mask(vcpu);
