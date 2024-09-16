@@ -633,7 +633,7 @@ static void kvm_pmu_create_perf_event(struct kvm_pmc *pmc)
 }
 
 /**
- * kvm_pmu_set_counter_event_type - set selected counter to monitor some event
+ * emulated_pmu_write_evtyper - set selected counter to monitor some event
  * @vcpu: The vcpu pointer
  * @data: The data guest writes to PMXEVTYPER_EL0
  * @select_idx: The number of selected counter
@@ -642,17 +642,16 @@ static void kvm_pmu_create_perf_event(struct kvm_pmc *pmc)
  * event with given hardware event number. Here we call perf_event API to
  * emulate this action and create a kernel perf event for it.
  */
-void kvm_pmu_set_counter_event_type(struct kvm_vcpu *vcpu, u64 data,
-				    u64 select_idx)
+void emulated_pmu_write_evtyper(struct kvm_vcpu *vcpu, u64 val, unsigned int idx)
 {
-	struct kvm_pmc *pmc = kvm_vcpu_idx_to_pmc(vcpu, select_idx);
+	struct kvm_pmc *pmc = kvm_vcpu_idx_to_pmc(vcpu, idx);
 	u64 reg;
 
 	if (!kvm_vcpu_has_pmu(vcpu))
 		return;
 
 	reg = counter_index_to_evtreg(pmc->idx);
-	__vcpu_sys_reg(vcpu, reg) = data & kvm_pmu_evtyper_mask(vcpu->kvm);
+	__vcpu_sys_reg(vcpu, reg) = val;
 
 	kvm_pmu_create_perf_event(pmc);
 }

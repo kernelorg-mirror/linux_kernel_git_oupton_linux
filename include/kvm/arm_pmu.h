@@ -60,8 +60,7 @@ bool kvm_pmu_should_notify_user(struct kvm_vcpu *vcpu);
 void kvm_pmu_update_run(struct kvm_vcpu *vcpu);
 void kvm_pmu_software_increment(struct kvm_vcpu *vcpu, u64 val);
 void kvm_pmu_handle_pmcr(struct kvm_vcpu *vcpu, u64 val);
-void kvm_pmu_set_counter_event_type(struct kvm_vcpu *vcpu, u64 data,
-				    u64 select_idx);
+void kvm_pmu_write_evtyper(struct kvm_vcpu *vcpu, u64 val, unsigned int idx);
 void kvm_vcpu_reload_pmu(struct kvm_vcpu *vcpu);
 int kvm_arm_pmu_v3_set_attr(struct kvm_vcpu *vcpu,
 			    struct kvm_device_attr *attr);
@@ -78,6 +77,9 @@ void kvm_vcpu_pmu_resync_el0(void);
 
 #define kvm_vcpu_has_pmu(vcpu)					\
 	(vcpu_has_feature(vcpu, KVM_ARM_VCPU_PMU_V3))
+
+#define kvm_has_direct_pmu(kvm)					\
+	(false)
 
 /*
  * Updates the vcpu's view of the pmu events for this cpu.

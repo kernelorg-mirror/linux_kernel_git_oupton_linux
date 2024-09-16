@@ -10,6 +10,12 @@
 
 #include "pmu.h"
 
+static inline bool direct_pmu_on_cpu(struct kvm_vcpu *vcpu)
+{
+	/* TODO: THIS! */
+	return false;
+}
+
 static u64 __effective_pmevtyper(struct kvm_vcpu *vcpu, unsigned int idx)
 {
 	u64 val = __vcpu_sys_reg(vcpu, counter_index_to_evtreg(idx));
@@ -103,4 +109,14 @@ void kvm_direct_pmu_put(struct kvm_vcpu *vcpu)
 	save_cfg_reg_clr_set(vcpu, PMCNTEN, EL0);
 	save_cfg_reg_clr_set(vcpu, PMINTEN, EL1);
 	save_cfg_reg_clr_set(vcpu, PMOVS, EL0);
+}
+
+void direct_pmu_write_evtyper(struct kvm_vcpu *vcpu, u64 val, unsigned int idx)
+{
+	__vcpu_sys_reg(vcpu, counter_index_to_evtreg(idx)) = val;
+
+	if (!direct_pmu_on_cpu(vcpu))
+		kvm_direct_pmu_load(vcpu);
+
+	__kvm_write_cpu_evtyper(idx, __effective_pmevtyper(vcpu, idx));
 }

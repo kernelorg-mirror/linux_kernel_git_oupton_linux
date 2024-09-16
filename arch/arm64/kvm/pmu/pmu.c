@@ -253,3 +253,13 @@ void kvm_vcpu_pmu_resync_el0(void)
 
 	kvm_make_request(KVM_REQ_RESYNC_PMU_EL0, vcpu);
 }
+
+void kvm_pmu_write_evtyper(struct kvm_vcpu *vcpu, u64 val, unsigned int idx)
+{
+	val &= kvm_pmu_evtyper_mask(vcpu->kvm);
+
+	if (kvm_has_direct_pmu(vcpu->kvm))
+		direct_pmu_write_evtyper(vcpu, val, idx);
+	else
+		emulated_pmu_write_evtyper(vcpu, val, idx);
+}
