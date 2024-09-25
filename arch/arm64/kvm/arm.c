@@ -481,7 +481,7 @@ int kvm_arch_vcpu_create(struct kvm_vcpu *vcpu)
 
 	kvm_arm_pvtime_vcpu_init(&vcpu->arch);
 
-	vcpu->arch.hw_mmu = &vcpu->kvm->arch.mmu;
+	vcpu->arch.__hw_mmu = &vcpu->kvm->arch.mmu;
 
 	/*
 	 * This vCPU may have been created after mpidr_data was initialized.
@@ -581,7 +581,7 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	if (vcpu_has_nv(vcpu))
 		kvm_vcpu_load_hw_mmu(vcpu);
 
-	mmu = vcpu->arch.hw_mmu;
+	mmu = vcpu_to_hw_mmu_unsafe(vcpu);
 	last_ran = this_cpu_ptr(mmu->last_vcpu_ran);
 
 	/*
@@ -1169,10 +1169,10 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 		 * making a thread's VMID inactive. So we need to call
 		 * kvm_arm_vmid_update() in non-premptible context.
 		 */
-		if (kvm_arm_vmid_update(&vcpu->arch.hw_mmu->vmid) &&
+		if (kvm_arm_vmid_update(&vcpu_to_hw_mmu_unsafe(vcpu)->vmid) &&
 		    has_vhe())
-			__load_stage2(vcpu->arch.hw_mmu,
-				      vcpu->arch.hw_mmu->arch);
+			__load_stage2(vcpu_to_hw_mmu_unsafe(vcpu),
+				      &vcpu->kvm->arch);
 
 		kvm_pmu_flush_hwstate(vcpu);
 

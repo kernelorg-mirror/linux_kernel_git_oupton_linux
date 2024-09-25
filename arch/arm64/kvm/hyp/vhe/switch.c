@@ -245,7 +245,7 @@ void kvm_vcpu_load_vhe(struct kvm_vcpu *vcpu)
 
 	__vcpu_load_switch_sysregs(vcpu);
 	__vcpu_load_activate_traps(vcpu);
-	__load_stage2(vcpu->arch.hw_mmu, vcpu->arch.hw_mmu->arch);
+	__load_stage2(vcpu_to_hw_mmu_unsafe(vcpu), &vcpu->kvm->arch);
 }
 
 void kvm_vcpu_put_vhe(struct kvm_vcpu *vcpu)

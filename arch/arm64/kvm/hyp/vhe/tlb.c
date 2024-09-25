@@ -25,8 +25,8 @@ static void enter_vmid_context(struct kvm_s2_mmu *mmu,
 
 	local_irq_save(cxt->flags);
 
-	if (vcpu && mmu != vcpu->arch.hw_mmu)
-		cxt->mmu = vcpu->arch.hw_mmu;
+	if (vcpu && mmu != vcpu_to_hw_mmu_unsafe(vcpu))
+		cxt->mmu = vcpu_to_hw_mmu_unsafe(vcpu);
 	else
 		cxt->mmu = NULL;
 

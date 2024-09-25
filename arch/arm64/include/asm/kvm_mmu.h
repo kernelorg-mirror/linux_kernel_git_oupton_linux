@@ -358,5 +358,42 @@ void kvm_s2_ptdump_create_debugfs(struct kvm *kvm);
 static inline void kvm_s2_ptdump_create_debugfs(struct kvm *kvm) {}
 #endif /* CONFIG_PTDUMP_STAGE2_DEBUGFS */
 
+static inline struct kvm_s2_mmu *vcpu_to_hw_mmu_unsafe(struct kvm_vcpu *vcpu)
+{
+	/* The nVHE hypervisor code is always non-preemptible */
+	if (!is_nvhe_hyp_code())
+		lockdep_assert_preemption_disabled();
+
+	return vcpu->arch.__hw_mmu;
+}
+
+static inline void kvm_get_s2_mmu(struct kvm_s2_mmu *mmu)
+{
+	if (kvm_is_nested_s2_mmu(kvm_s2_mmu_to_kvm(mmu), mmu))
+		atomic_inc(&mmu->refcnt);
+}
+
+static inline void kvm_put_s2_mmu(struct kvm_s2_mmu *mmu)
+{
+	if (kvm_is_nested_s2_mmu(kvm_s2_mmu_to_kvm(mmu), mmu))
+		atomic_dec(&mmu->refcnt);
+}
+
+static inline struct kvm_s2_mmu *vcpu_get_hw_mmu(struct kvm_vcpu *vcpu)
+{
+	struct kvm_s2_mmu *mmu;
+
+	guard(preempt)();
+
+	mmu = vcpu_to_hw_mmu_unsafe(vcpu);
+	kvm_get_s2_mmu(mmu);
+
+	return mmu;
+}
+
+DEFINE_CLASS(vcpu_hw_mmu, struct kvm_s2_mmu *,
+	     kvm_put_s2_mmu(_T), vcpu_get_hw_mmu(vcpu),
+	     struct kvm_vcpu *vcpu)
+
 #endif /* __ASSEMBLY__ */
 #endif /* __ARM64_KVM_MMU_H__ */

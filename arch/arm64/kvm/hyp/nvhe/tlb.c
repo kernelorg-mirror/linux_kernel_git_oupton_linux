@@ -59,10 +59,10 @@ static void enter_vmid_context(struct kvm_s2_mmu *mmu,
 		 * to be called from within __kvm_vcpu_run(), which ensures that
 		 * __hyp_running_vcpu is set to the current guest vcpu.
 		 */
-		if (mmu == vcpu->arch.hw_mmu || WARN_ON(mmu != host_s2_mmu))
+		if (mmu == vcpu_to_hw_mmu_unsafe(vcpu) || WARN_ON(mmu != host_s2_mmu))
 			return;
 
-		cxt->mmu = vcpu->arch.hw_mmu;
+		cxt->mmu = vcpu_to_hw_mmu_unsafe(vcpu);
 	} else {
 		/* We're in host context. */
 		if (mmu == host_s2_mmu)

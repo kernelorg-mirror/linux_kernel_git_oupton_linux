@@ -326,7 +326,7 @@ int __kvm_vcpu_run(struct kvm_vcpu *vcpu)
 	__sysreg32_restore_state(vcpu);
 	__sysreg_restore_state_nvhe(guest_ctxt);
 
-	mmu = kern_hyp_va(vcpu->arch.hw_mmu);
+	mmu = kern_hyp_va(vcpu_to_hw_mmu_unsafe(vcpu));
 	__load_stage2(mmu, kern_hyp_va(mmu->arch));
 	__activate_traps(vcpu);
 

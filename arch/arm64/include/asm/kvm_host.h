@@ -685,8 +685,14 @@ struct kvm_vcpu_arch {
 	enum fp_type fp_type;
 	unsigned int sve_max_vl;
 
-	/* Stage 2 paging state used by the hardware on next switch */
-	struct kvm_s2_mmu *hw_mmu;
+	/*
+	 * Loaded stage-2 MMU context, this is **not** safe to dereference in
+	 * preemptible code as nested MMUs get attached at vcpu_load().
+	 *
+	 * Use the vcpu_hw_mmu 'class' instead to associate a pin on the loaded
+	 * MMU with a scope.
+	 */
+	struct kvm_s2_mmu *__hw_mmu;
 
 	/* Values of trap registers for the guest. */
 	u64 hcr_el2;

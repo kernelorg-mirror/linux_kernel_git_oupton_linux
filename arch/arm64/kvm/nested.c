@@ -649,7 +649,7 @@ static struct kvm_s2_mmu *get_s2_mmu_nested(struct kvm_vcpu *vcpu)
 	s2_mmu->nested_stage2_enabled = vcpu_read_sys_reg(vcpu, HCR_EL2) & HCR_VM;
 
 out:
-	atomic_inc(&s2_mmu->refcnt);
+	kvm_get_s2_mmu(s2_mmu);
 	return s2_mmu;
 }
 
@@ -664,19 +664,21 @@ void kvm_init_nested_s2_mmu(struct kvm_s2_mmu *mmu)
 void kvm_vcpu_load_hw_mmu(struct kvm_vcpu *vcpu)
 {
 	if (is_hyp_ctxt(vcpu)) {
-		vcpu->arch.hw_mmu = &vcpu->kvm->arch.mmu;
+		vcpu->arch.__hw_mmu = &vcpu->kvm->arch.mmu;
 	} else {
 		write_lock(&vcpu->kvm->mmu_lock);
-		vcpu->arch.hw_mmu = get_s2_mmu_nested(vcpu);
+		vcpu->arch.__hw_mmu = get_s2_mmu_nested(vcpu);
 		write_unlock(&vcpu->kvm->mmu_lock);
 	}
 }
 
 void kvm_vcpu_put_hw_mmu(struct kvm_vcpu *vcpu)
 {
-	if (kvm_is_nested_s2_mmu(vcpu->kvm, vcpu->arch.hw_mmu)) {
-		atomic_dec(&vcpu->arch.hw_mmu->refcnt);
-		vcpu->arch.hw_mmu = NULL;
+	struct kvm_s2_mmu *mmu = vcpu_to_hw_mmu_unsafe(vcpu);
+
+	if (kvm_is_nested_s2_mmu(vcpu->kvm, mmu)) {
+		kvm_put_s2_mmu(mmu);
+		vcpu->arch.__hw_mmu = NULL;
 	}
 }
 
