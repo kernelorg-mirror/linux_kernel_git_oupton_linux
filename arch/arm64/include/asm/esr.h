@@ -451,6 +451,17 @@ static inline bool esr_fsc_is_sea(unsigned long esr)
 	}
 }
 
+static inline bool esr_fsc_is_address_size_fault(unsigned long esr)
+{
+	esr = esr & ESR_ELx_FSC;
+
+	return (esr == ESR_ELx_FSC_ADDRSZ_L(3)) ||
+	       (esr == ESR_ELx_FSC_ADDRSZ_L(2)) ||
+	       (esr == ESR_ELx_FSC_ADDRSZ_L(1)) ||
+	       (esr == ESR_ELx_FSC_ADDRSZ_L(0)) ||
+	       (esr == ESR_ELx_FSC_ADDRSZ_L(-1));
+}
+
 /* Indicate whether ESR.EC==0x1A is for an ERETAx instruction */
 static inline bool esr_iss_is_eretax(unsigned long esr)
 {
