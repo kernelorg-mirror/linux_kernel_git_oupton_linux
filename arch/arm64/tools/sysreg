@@ -2722,6 +2722,13 @@ Sysreg	FAR_EL2	3	4	6	0	0
 Field	63:0	ADDR
 EndSysreg
 
+Sysreg	HPFAR_EL2	3	4	6	0	4
+Field	63	NS
+Res0	62:44
+Field	43:4	FIPA
+Res0	3:0
+EndSysreg
+
 Sysreg	PMSCR_EL2	3	4	9	9	0
 Res0	63:8
 Enum	7:6	PCT

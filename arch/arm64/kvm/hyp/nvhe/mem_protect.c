@@ -529,7 +529,7 @@ unlock:
 void handle_host_mem_abort(struct kvm_cpu_context *host_ctxt)
 {
 	struct kvm_vcpu_fault_info fault;
-	u64 esr, addr;
+	u64 esr;
 	int ret = 0;
 
 	esr = read_sysreg_el2(SYS_ESR);
@@ -541,8 +541,7 @@ void handle_host_mem_abort(struct kvm_cpu_context *host_ctxt)
 		return;
 	}
 
-	addr = (fault.hpfar_el2 & HPFAR_MASK) << 8;
-	ret = host_stage2_idmap(addr);
+	ret = host_stage2_idmap(__kvm_get_fault_ipa(&fault));
 	BUG_ON(ret && ret != -EAGAIN);
 }
 

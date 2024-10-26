@@ -291,9 +291,14 @@ static __always_inline unsigned long kvm_vcpu_get_hfar(const struct kvm_vcpu *vc
 	return vcpu->arch.fault.far_el2;
 }
 
+static __always_inline phys_addr_t __kvm_get_fault_ipa(const struct kvm_vcpu_fault_info *fault)
+{
+	return SYS_FIELD_GET(HPFAR_EL2, FIPA, fault->hpfar_el2) << 8;
+}
+
 static __always_inline phys_addr_t kvm_vcpu_get_fault_ipa(const struct kvm_vcpu *vcpu)
 {
-	return ((phys_addr_t)vcpu->arch.fault.hpfar_el2 & HPFAR_MASK) << 8;
+	return __kvm_get_fault_ipa(&vcpu->arch.fault);
 }
 
 static inline u64 kvm_vcpu_get_disr(const struct kvm_vcpu *vcpu)
