@@ -44,34 +44,69 @@ static inline bool __translate_far_to_hpfar(u64 far, u64 *hpfar)
 	return true;
 }
 
-static inline bool __get_fault_info(u64 esr, struct kvm_vcpu_fault_info *fault)
+static inline bool __hpfar_valid(u64 esr)
 {
-	u64 hpfar, far;
-
-	far = read_sysreg_el2(SYS_FAR);
+	/*
+	 * HPFAR_EL2 is written for Translation, Access Flag, and Permission
+	 * faults at stage-2 that occur during a stage-1 table walk.
+	 */
+	if (esr & ESR_ELx_S1PTW)
+		return esr_fsc_is_translation_fault(esr) ||
+		       esr_fsc_is_access_flag_fault(esr) ||
+		       esr_fsc_is_permission_fault(esr);
 
 	/*
-	 * The HPFAR can be invalid if the stage 2 fault did not
-	 * happen during a stage 1 page table walk (the ESR_EL2.S1PTW
-	 * bit is clear) and one of the two following cases are true:
-	 *   1. The fault was due to a permission fault
-	 *   2. The processor carries errata 834220
-	 *
-	 * Therefore, for all non S1PTW faults where we either have a
-	 * permission fault or the errata workaround is enabled, we
-	 * resolve the IPA using the AT instruction.
-	 */
-	if (!(esr & ESR_ELx_S1PTW) &&
-	    (cpus_have_final_cap(ARM64_WORKAROUND_834220) ||
-	     esr_fsc_is_permission_fault(esr))) {
-		if (!__translate_far_to_hpfar(far, &hpfar))
-			return false;
-	} else {
-		hpfar = read_sysreg(hpfar_el2);
-	}
+	* Processors affected by Arm erratum #834220 may have misreported a
+	* stage-2 fault when the stage-1 translation should've faulted. Rewalk
+	* the stage-1 to ensure the stage-1 mapping is valid.
+	*/
+	if (cpus_have_final_cap(ARM64_WORKAROUND_834220))
+		return false;
 
-	fault->far_el2 = far;
-	fault->hpfar_el2 = hpfar;
+	/*
+	 * Otherwise, HPFAR_EL2 is written for Translation, Access Flag, and
+	 * Address size faults at stage-2.
+	 */
+	return esr_fsc_is_translation_fault(esr) ||
+	       esr_fsc_is_access_flag_fault(esr) ||
+	       esr_fsc_is_address_size_fault(esr);
+}
+
+static inline bool __is_sea_s1ptw(u64 esr)
+{
+	return esr_fsc_is_sea(esr) && (esr & ESR_ELx_S1PTW);
+}
+
+static inline bool __get_fault_info(u64 esr, struct kvm_vcpu_fault_info *fault)
+{
+	fault->far_el2 = read_sysreg_el2(SYS_FAR);
+	fault->hpfar_el2 = 0;
+
+	/* Don't waste a useful walk result */
+	if (__hpfar_valid(esr))
+		fault->hpfar_el2 = read_sysreg(hpfar_el2);
+	/*
+	 * Try to resolve the IPA, but avoid rewalking the stage-1 if hardware
+	 * encountered an SEA the first time around.
+	 */
+	else if (!__is_sea_s1ptw(esr) &&
+		 !__translate_far_to_hpfar(far, &fault->hpfar_el2))
+			return false;
+	/*
+	 * Hmm... Looks like the keg is empty this time.
+	 *
+	 * Continue with forwarding the fault back to the kernel context w/ an
+	 * invalid HPFAR_EL2 value.
+	 */
+	else
+		return true;
+
+	/*
+	 * Hijack the NS bit to indicate we got a valid HPFAR_EL2 value. The bit
+	 * is RES0 in non-secure and we obviously took an abort from the
+	 * non-secure IPA space.
+	 */
+	fault->hpfar_el2 |= HPFAR_EL2_NS;
 	return true;
 }
 

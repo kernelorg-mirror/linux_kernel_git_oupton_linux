@@ -293,6 +293,9 @@ static __always_inline unsigned long kvm_vcpu_get_hfar(const struct kvm_vcpu *vc
 
 static __always_inline phys_addr_t __kvm_get_fault_ipa(const struct kvm_vcpu_fault_info *fault)
 {
+	if (unlikely(!(fault->hpfar_el2 & HPFAR_EL2_NS)))
+		return INVALID_GPA;
+
 	return SYS_FIELD_GET(HPFAR_EL2, FIPA, fault->hpfar_el2) << 8;
 }
 
