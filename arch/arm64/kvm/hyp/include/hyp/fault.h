@@ -90,7 +90,7 @@ static inline bool __get_fault_info(u64 esr, struct kvm_vcpu_fault_info *fault)
 	 * encountered an SEA the first time around.
 	 */
 	else if (!__is_sea_s1ptw(esr) &&
-		 !__translate_far_to_hpfar(far, &fault->hpfar_el2))
+		 !__translate_far_to_hpfar(fault->far_el2, &fault->hpfar_el2))
 			return false;
 	/*
 	 * Hmm... Looks like the keg is empty this time.
