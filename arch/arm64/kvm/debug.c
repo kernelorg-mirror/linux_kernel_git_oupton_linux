@@ -91,20 +91,6 @@ static void kvm_arm_setup_mdcr_el2(struct kvm_vcpu *vcpu)
 }
 
 /**
- * kvm_arm_vcpu_init_debug - setup vcpu debug traps
- *
- * @vcpu:	the vcpu pointer
- *
- * Set vcpu initial mdcr_el2 value.
- */
-void kvm_arm_vcpu_init_debug(struct kvm_vcpu *vcpu)
-{
-	preempt_disable();
-	kvm_arm_setup_mdcr_el2(vcpu);
-	preempt_enable();
-}
-
-/**
  * kvm_arm_setup_debug - set up debug related stuff
  *
  * @vcpu:	the vcpu pointer
@@ -121,11 +107,9 @@ void kvm_arm_vcpu_init_debug(struct kvm_vcpu *vcpu)
 
 void kvm_arm_setup_debug(struct kvm_vcpu *vcpu)
 {
-	unsigned long mdscr, orig_mdcr_el2 = vcpu->arch.mdcr_el2;
+	unsigned long mdscr;
 
 	trace_kvm_arm_setup_debug(vcpu, vcpu->guest_debug);
-
-	kvm_arm_setup_mdcr_el2(vcpu);
 
 	/* Check if we need to use the debug registers. */
 	if (vcpu->guest_debug || kvm_vcpu_os_lock_enabled(vcpu)) {
@@ -196,10 +180,6 @@ void kvm_arm_setup_debug(struct kvm_vcpu *vcpu)
 			vcpu_write_sys_reg(vcpu, mdscr, MDSCR_EL1);
 		}
 	}
-
-	/* Write mdcr_el2 changes since vcpu_load on VHE systems */
-	if (has_vhe() && orig_mdcr_el2 != vcpu->arch.mdcr_el2)
-		write_sysreg(vcpu->arch.mdcr_el2, mdcr_el2);
 }
 
 void kvm_arm_clear_debug(struct kvm_vcpu *vcpu)
@@ -273,6 +253,8 @@ void kvm_vcpu_load_debug(struct kvm_vcpu *vcpu)
 		else
 			vcpu->arch.debug_owner = VCPU_DEBUG_FREE;
 	}
+
+	kvm_arm_setup_mdcr_el2(vcpu);
 }
 
 /*
@@ -288,6 +270,10 @@ void kvm_debug_set_guest_ownership(struct kvm_vcpu *vcpu)
 
 	WARN_ON_ONCE(vcpu->arch.debug_owner == VCPU_DEBUG_GUEST_OWNED);
 	vcpu->arch.debug_owner = VCPU_DEBUG_GUEST_OWNED;
+	kvm_arm_setup_mdcr_el2(vcpu);
+
+	if (has_vhe())
+		write_sysreg(vcpu->arch.mdcr_el2, mdcr_el2);
 }
 
 void kvm_debug_handle_oslar(struct kvm_vcpu *vcpu, u64 val)
