@@ -656,6 +656,7 @@ static bool trap_debug_regs(struct kvm_vcpu *vcpu,
 	if (p->is_write)
 		vcpu_set_flag(vcpu, DEBUG_DIRTY);
 
+	kvm_debug_set_guest_ownership(vcpu);
 	trace_trap_reg(__func__, r->reg, p->is_write, p->regval);
 
 	return true;
@@ -709,6 +710,7 @@ static bool trap_bvr(struct kvm_vcpu *vcpu,
 	else
 		dbg_to_reg(vcpu, p, rd, dbg_reg);
 
+	kvm_debug_set_guest_ownership(vcpu);
 	trace_trap_reg(__func__, rd->CRm, p->is_write, *dbg_reg);
 
 	return true;
