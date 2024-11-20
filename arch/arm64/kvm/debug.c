@@ -72,10 +72,6 @@ void kvm_init_host_debug_data(void)
 	if (cpuid_feature_extract_unsigned_field(dfr0, ID_AA64DFR0_EL1_PMSVer_SHIFT) &&
 	    !(read_sysreg_s(SYS_PMBIDR_EL1) & PMBIDR_EL1_P))
 		host_data_set_flag(HAS_SPE);
-
-	if (cpuid_feature_extract_unsigned_field(dfr0, ID_AA64DFR0_EL1_TraceBuffer_SHIFT) &&
-	    !(read_sysreg_s(SYS_TRBIDR_EL1) & TRBIDR_EL1_P))
-		host_data_set_flag(HAS_TRBE);
 }
 
 /*
@@ -215,3 +211,27 @@ void kvm_debug_handle_oslar(struct kvm_vcpu *vcpu, u64 val)
 	kvm_arch_vcpu_load(vcpu, smp_processor_id());
 	preempt_enable();
 }
+
+void kvm_enable_trbe(u64 guest_trfcr)
+{
+	if (WARN_ON_ONCE(preemptible()))
+		return;
+
+	if (has_vhe()) {
+		write_sysreg_s(guest_trfcr, SYS_TRFCR_EL12);
+		return;
+	}
+
+	*host_data_ptr(guest_trfcr_el1) = guest_trfcr;
+	host_data_set_flag(HOST_TRBE_ENABLED);
+}
+EXPORT_SYMBOL_GPL(kvm_enable_trbe);
+
+void kvm_disable_trbe(void)
+{
+	if (has_vhe() || WARN_ON_ONCE(preemptible()))
+		return;
+
+	host_data_clear_flag(HOST_TRBE_ENABLED);
+}
+EXPORT_SYMBOL_GPL(kvm_disable_trbe);
