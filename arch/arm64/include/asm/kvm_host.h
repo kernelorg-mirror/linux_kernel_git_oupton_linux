@@ -460,6 +460,9 @@ enum vcpu_sysreg {
 	SVCR,
 	FPMR,
 
+	/* Random stuff */
+	ACCDATA_EL1,	/* Accelerator Data */
+
 	/* 32bit specific registers. */
 	DACR32_EL2,	/* Domain Access Control Register */
 	IFSR32_EL2,	/* Instruction Fault Status Register */

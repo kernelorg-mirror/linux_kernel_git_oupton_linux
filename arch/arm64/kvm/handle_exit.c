@@ -291,6 +291,69 @@ static int handle_svc(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int handle_ls64b(struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = vcpu->kvm;
+	u64 esr = kvm_vcpu_get_esr(vcpu);
+	u64 iss = ESR_ELx_ISS(esr);
+	bool allowed;
+
+	switch (iss) {
+	case ESR_ELx_ISS_ST64BV:
+		allowed = kvm_has_feat(kvm, ID_AA64ISAR1_EL1, LS64, LS64_V);
+		break;
+	case ESR_ELx_ISS_ST64BV0:
+		allowed = kvm_has_feat(kvm, ID_AA64ISAR1_EL1, LS64, LS64_ACCDATA);
+		break;
+	case ESR_ELx_ISS_LDST64B:
+		allowed = kvm_has_feat(kvm, ID_AA64ISAR1_EL1, LS64, LS64);
+		break;
+	default:
+		/* Clearly, we're missing something. */
+		goto unknown_trap;
+	}
+
+	if (!allowed)
+		goto undef;
+
+	if (vcpu_has_nv(vcpu) && !is_hyp_ctxt(vcpu)) {
+		u64 hcrx = __vcpu_sys_reg(vcpu, HCRX_EL2);
+		bool fwd;
+
+		switch (iss) {
+		case ESR_ELx_ISS_ST64BV:
+			fwd = !(hcrx & HCRX_EL2_EnASR);
+			break;
+		case ESR_ELx_ISS_ST64BV0:
+			fwd = !(hcrx & HCRX_EL2_EnAS0);
+			break;
+		case ESR_ELx_ISS_LDST64B:
+			fwd = !(hcrx & HCRX_EL2_EnALS);
+			break;
+		default:
+			/* We don't expect to be here */
+			fwd = false;
+		}
+
+		if (fwd) {
+			kvm_inject_nested_sync(vcpu, esr);
+			return 1;
+		}
+	}
+
+unknown_trap:
+	/*
+	 * If we land here, something must be very wrong, because we
+	 * have no idea why we trapped at all. Warn and undef as a
+	 * fallback.
+	 */
+	WARN_ON(1);
+
+undef:
+	kvm_inject_undefined(vcpu);
+	return 1;
+}
+
 static exit_handle_fn arm_exit_handlers[] = {
 	[0 ... ESR_ELx_EC_MAX]	= kvm_handle_unknown_ec,
 	[ESR_ELx_EC_WFx]	= kvm_handle_wfx,
@@ -300,6 +363,7 @@ static exit_handle_fn arm_exit_handlers[] = {
 	[ESR_ELx_EC_CP14_LS]	= kvm_handle_cp14_load_store,
 	[ESR_ELx_EC_CP10_ID]	= kvm_handle_cp10_id,
 	[ESR_ELx_EC_CP14_64]	= kvm_handle_cp14_64,
+	[ESR_ELx_EC_LS64B]	= handle_ls64b,
 	[ESR_ELx_EC_HVC32]	= handle_hvc,
 	[ESR_ELx_EC_SMC32]	= handle_smc,
 	[ESR_ELx_EC_HVC64]	= handle_hvc,
