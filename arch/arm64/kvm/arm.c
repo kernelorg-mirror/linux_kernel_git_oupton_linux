@@ -596,8 +596,8 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 
 	vcpu->cpu = cpu;
 
-	kvm_vgic_load(vcpu);
 	kvm_timer_vcpu_load(vcpu);
+	kvm_vgic_load(vcpu);
 	if (has_vhe())
 		kvm_vcpu_load_vhe(vcpu);
 	kvm_arch_vcpu_load_fp(vcpu);
@@ -824,6 +824,12 @@ int kvm_arch_vcpu_run_pid_change(struct kvm_vcpu *vcpu)
 	if (ret)
 		return ret;
 
+	if (vcpu_has_nv(vcpu)) {
+		ret = kvm_vgic_vcpu_nv_init(vcpu);
+		if (ret)
+			return ret;
+	}
+
 	/*
 	 * This needs to happen after any restriction has been applied
 	 * to the feature set.
@@ -908,6 +914,17 @@ static void kvm_vcpu_sleep(struct kvm_vcpu *vcpu)
  */
 void kvm_vcpu_wfi(struct kvm_vcpu *vcpu)
 {
+	/*
+	 * If we're in nested state and the guest hypervisor does not trap
+	 * WFI, we're in a bit of trouble, as we don't have a good handle
+	 * on the interrupts that are pending for the guest yet. Revisit
+	 * this at some point.
+	 */
+	if (vgic_state_is_nested(vcpu)) {
+		vcpu_clear_flag(vcpu, IN_WFIT);
+		return;
+	}
+
 	/*
 	 * Sync back the state of the GIC CPU interface so that we have
 	 * the latest PMR and group enables. This ensures that
@@ -1153,6 +1170,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 		 * preserved on VMID roll-over if the task was preempted,
 		 * making a thread's VMID inactive. So we need to call
 		 * kvm_arm_vmid_update() in non-premptible context.
+		 *
+		 * Note that this must happen after the check_vcpu_request()
+		 * call to pick the correct s2_mmu structure, as a pending
+		 * nested exception (IRQ, for example) can trigger a change
+		 * in translation regime.
 		 */
 		if (kvm_arm_vmid_update(&vcpu->arch.hw_mmu->vmid) &&
 		    has_vhe())
