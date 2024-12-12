@@ -230,6 +230,16 @@ static inline bool vcpu_is_host_el0(const struct kvm_vcpu *vcpu)
 	return is_hyp_ctxt(vcpu) && !vcpu_is_el2(vcpu);
 }
 
+static inline bool vcpu_el2_e2h_is_programmable(const struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = vcpu->kvm;
+
+	return (cpus_have_final_cap(ARM64_HAS_FEAT_NV) &&
+		vcpu_has_nv(vcpu) &&
+		kvm_has_feat(kvm, ID_AA64MMFR1_EL1, VH, IMP) &&
+		kvm_has_feat(kvm, ID_AA64MMFR1_EL1, E2H0, IMP));
+}
+
 /*
  * The layout of SPSR for an AArch32 state is different when observed from an
  * AArch64 SPSR_ELx or an AArch32 SPSR_*. This function generates the AArch32

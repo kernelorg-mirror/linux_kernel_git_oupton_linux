@@ -54,10 +54,13 @@ static u64 __compute_hcr(struct kvm_vcpu *vcpu)
 		return hcr;
 
 	if (is_hyp_ctxt(vcpu)) {
-		hcr |= HCR_NV | HCR_NV2 | HCR_AT | HCR_TTLB;
+		hcr |= HCR_NV | HCR_AT | HCR_TTLB;
 
 		if (!vcpu_el2_e2h_is_set(vcpu))
 			hcr |= HCR_NV1;
+
+		if (vcpu_el2_e2h_is_set(vcpu) || !vcpu_el2_e2h_is_programmable(vcpu))
+			hcr |= HCR_NV2;
 
 		write_sysreg_s(vcpu->arch.ctxt.vncr_array, SYS_VNCR_EL2);
 	}
