@@ -2520,6 +2520,7 @@ static const struct arm64_cpu_capabilities arm64_features[] = {
 		.cpu_enable = cpu_copy_el2regs,
 	},
 	{
+		/* FEAT_NV2 (or similar) */
 		.desc = "Nested Virtualization Support",
 		.capability = ARM64_HAS_NESTED_VIRT,
 		.type = ARM64_CPUCAP_SYSTEM_FEATURE,
@@ -2535,6 +2536,13 @@ static const struct arm64_cpu_capabilities arm64_features[] = {
 			},
 			{ /* Sentinel */ }
 		},
+	},
+	{
+		/* FEAT_NV */
+		.capability = ARM64_HAS_FEAT_NV,
+		.type = ARM64_CPUCAP_SYSTEM_FEATURE,
+		.matches = has_cpuid_feature,
+		ARM64_CPUID_FIELDS(ID_AA64MMFR2_EL1, NV, IMP)
 	},
 	{
 		.capability = ARM64_HAS_32BIT_EL0_DO_NOT_USE,
