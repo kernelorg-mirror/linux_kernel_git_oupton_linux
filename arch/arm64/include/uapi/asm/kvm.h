@@ -107,7 +107,12 @@ struct kvm_regs {
 #define KVM_ARM_VCPU_SVE		4 /* enable SVE for this CPU */
 #define KVM_ARM_VCPU_PTRAUTH_ADDRESS	5 /* VCPU uses address authentication */
 #define KVM_ARM_VCPU_PTRAUTH_GENERIC	6 /* VCPU uses generic authentication */
-#define KVM_ARM_VCPU_HAS_EL2		7 /* Support nested virtualization */
+#define KVM_ARM_VCPU_EL2_E2H0		7
+#define KVM_ARM_VCPU_EL2_E2H1		8
+
+#define KVM_CAP_ARM_EL2_E2H1			(1UL << 0)
+#define KVM_CAP_ARM_EL2_E2H0			(1UL << 1)
+#define KVM_CAP_ARM_EL2_E2H_PROGRAMMABLE	(1UL << 2)
 
 struct kvm_vcpu_init {
 	__u32 target;
