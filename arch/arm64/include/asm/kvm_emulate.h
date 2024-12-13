@@ -237,7 +237,7 @@ static inline bool vcpu_el2_e2h_is_programmable(const struct kvm_vcpu *vcpu)
 	return (cpus_have_final_cap(ARM64_HAS_FEAT_NV) &&
 		vcpu_has_nv(vcpu) &&
 		kvm_has_feat(kvm, ID_AA64MMFR1_EL1, VH, IMP) &&
-		kvm_has_feat(kvm, ID_AA64MMFR1_EL1, E2H0, IMP));
+		kvm_has_feat(kvm, ID_AA64MMFR4_EL1, E2H0, IMP));
 }
 
 /*
