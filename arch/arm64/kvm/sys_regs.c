@@ -2276,17 +2276,31 @@ static unsigned int el2_visibility(const struct kvm_vcpu *vcpu,
 	return REG_HIDDEN;
 }
 
-static bool bad_vncr_trap(struct kvm_vcpu *vcpu,
-			  struct sys_reg_params *p,
-			  const struct sys_reg_desc *r)
+static bool vncr_trap(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+		      const struct sys_reg_desc *r)
 {
 	/*
 	 * We really shouldn't be here, and this is likely the result
 	 * of a misconfigured trap, as this register should target the
 	 * VNCR page, and nothing else.
 	 */
-	return bad_trap(vcpu, p, r,
-			"trap of VNCR-backed register");
+	if (likely(!vcpu_el2_e2h_is_programmable(vcpu) || vcpu_el2_e2h_is_set(vcpu)))
+		return bad_trap(vcpu, p, r, "trap of VNCR-backed register");
+
+	if (p->is_write)
+		vcpu_write_sys_reg(vcpu, p->regval, r->reg);
+	else
+		p->regval = vcpu_read_sys_reg(vcpu, r->reg);
+
+	if (r->reg != HCR_EL2 || !vcpu_el2_e2h_is_set(vcpu))
+		return true;
+
+	preempt_disable();
+	kvm_arch_vcpu_put(vcpu);
+	kvm_arch_vcpu_load(vcpu, smp_processor_id());
+	preempt_enable();
+
+	return true;
 }
 
 static bool bad_redir_trap(struct kvm_vcpu *vcpu,
@@ -2320,7 +2334,7 @@ static bool bad_redir_trap(struct kvm_vcpu *vcpu,
 	.val = v,				\
 }
 
-#define EL2_REG_VNCR(name, rst, v)	EL2_REG(name, bad_vncr_trap, rst, v)
+#define EL2_REG_VNCR(name, rst, v)	EL2_REG(name, vncr_trap, rst, v)
 #define EL2_REG_REDIR(name, rst, v)	EL2_REG(name, bad_redir_trap, rst, v)
 
 /*
