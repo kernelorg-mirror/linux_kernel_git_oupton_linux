@@ -390,11 +390,11 @@ int kvm_vm_ioctl_check_extension(struct kvm *kvm, long ext)
 		if (!cpus_have_final_cap(ARM64_HAS_NESTED_VIRT))
 			break;
 
-		r |= KVM_ARM_VCPU_EL2_E2H1;
+		r |= KVM_CAP_ARM_EL2_E2H1;
 		if (cpus_have_final_cap(ARM64_HAS_HCR_NV1))
-			r |= KVM_ARM_VCPU_EL2_E2H0;
+			r |= KVM_CAP_ARM_EL2_E2H0;
 		if (cpus_have_final_cap(ARM64_HAS_FEAT_NV))
-			r |= KVM_ARM64_VCPU_EL2_PROGRAMMABLE;
+			r |= KVM_CAP_ARM_EL2_E2H_PROGRAMMABLE;
 		break;
 	case KVM_CAP_GUEST_DEBUG_HW_BPS:
 		r = get_num_brps();
@@ -1451,6 +1451,7 @@ static int kvm_vcpu_init_check_features(struct kvm_vcpu *vcpu,
 					const struct kvm_vcpu_init *init)
 {
 	unsigned long features = init->features[0];
+	bool e2h0, e2h1;
 	int i;
 
 	if (features & ~KVM_VCPU_VALID_FEATURES)
@@ -1472,6 +1473,16 @@ static int kvm_vcpu_init_check_features(struct kvm_vcpu *vcpu,
 	    test_bit(KVM_ARM_VCPU_PTRAUTH_GENERIC, &features))
 		return -EINVAL;
 
+	e2h0 = test_bit(KVM_ARM_VCPU_EL2_E2H0, &features);
+	e2h1 = test_bit(KVM_ARM_VCPU_EL2_E2H1, &features);
+
+	if (!cpus_have_final_cap(ARM64_HAS_NESTED_VIRT) && (e2h0 || e2h1))
+		return -EINVAL;
+
+	/* FEAT_NV traps are required to handle E2H change */
+	if (!cpus_have_final_cap(ARM64_HAS_FEAT_NV) && e2h0 && e2h1)
+		return -EINVAL;
+
 	if (!test_bit(KVM_ARM_VCPU_EL1_32BIT, &features))
 		return 0;
 
@@ -1480,13 +1491,7 @@ static int kvm_vcpu_init_check_features(struct kvm_vcpu *vcpu,
 		return -EINVAL;
 
 	/* NV is incompatible with AArch32 */
-	if (test_bit(KVM_ARM_VCPU_HAS_EL2, &features))
-		return -EINVAL;
-
-	/* FEAT_NV traps are required to handle E2H change */
-	if (!cpus_have_final_cap(ARM64_HAS_FEAT_NV) &&
-	    test_bit(KVM_ARM_VCPU_EL2_E2H1, vcpu) &&
-	    test_bit(KVM_ARM_VCPU_EL2_E2H0, vcpu))
+	if (e2h0 || e2h1)
 		return -EINVAL;
 
 	return 0;

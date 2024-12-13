@@ -924,7 +924,8 @@ static void limit_nv_id_regs(struct kvm *kvm)
 
 	val = 0;
 	tmp = kvm_read_vm_id_reg(kvm, SYS_ID_AA64MMFR1_EL1);
-	if (FIELD_GET(NV_FTR(MMFR1, VH), tmp))
+	if (__vcpu_has_feature(&kvm->arch, KVM_ARM_VCPU_EL2_E2H1) &&
+	    !__vcpu_has_feature(&kvm->arch, KVM_ARM_VCPU_EL2_E2H0))
 		val |= FIELD_PREP(NV_FTR(MMFR4, E2H0),
 				  ID_AA64MMFR4_EL1_E2H0_NI_NV1);
 	kvm_set_vm_id_reg(kvm, SYS_ID_AA64MMFR4_EL1, val);
