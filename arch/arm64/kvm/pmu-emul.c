@@ -911,11 +911,12 @@ void kvm_vcpu_reload_pmu(struct kvm_vcpu *vcpu)
 {
 	u64 mask = kvm_pmu_implemented_counter_mask(vcpu);
 
-	kvm_pmu_handle_pmcr(vcpu, kvm_vcpu_read_pmcr(vcpu));
-
 	__vcpu_sys_reg(vcpu, PMOVSSET_EL0) &= mask;
 	__vcpu_sys_reg(vcpu, PMINTENSET_EL1) &= mask;
 	__vcpu_sys_reg(vcpu, PMCNTENSET_EL0) &= mask;
+
+	kvm_pmu_enable_counter_mask(vcpu, __vcpu_sys_reg(vcpu, PMCNTENSET_EL0));
+	kvm_vcpu_pmu_restore_guest(vcpu);
 }
 
 int kvm_arm_pmu_v3_enable(struct kvm_vcpu *vcpu)
