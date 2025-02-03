@@ -1357,7 +1357,9 @@ endchoice
 
 choice
 	prompt "Virtual address space size"
-	default ARM64_VA_BITS_52
+	default ARM64_VA_BITS_39 if ARM64_4K_PAGES
+	default ARM64_VA_BITS_47 if ARM64_16K_PAGES
+	default ARM64_VA_BITS_42 if ARM64_64K_PAGES
 	help
 	  Allows choosing one of multiple possible virtual address
 	  space sizes. The level of translation table is determined by
@@ -1430,7 +1432,6 @@ choice
 
 config ARM64_PA_BITS_48
 	bool "48-bit"
-	depends on ARM64_64K_PAGES || !ARM64_VA_BITS_52
 
 config ARM64_PA_BITS_52
 	bool "52-bit"
