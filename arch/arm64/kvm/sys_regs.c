@@ -5215,6 +5215,9 @@ static void vcpu_set_hcr(struct kvm_vcpu *vcpu)
 	 */
 	if (!kvm_has_feat(kvm, ID_AA64ISAR0_EL1, TLB, OS))
 		vcpu->arch.hcr_el2 |= HCR_TTLBOS;
+
+	if (kvm_has_scxtnum(kvm))
+		vcpu->arch.hcr_el2 |= HCR_EL2_EnSCXT;
 }
 
 void kvm_calculate_traps(struct kvm_vcpu *vcpu)
