@@ -440,6 +440,7 @@ enum vcpu_sysreg {
 	CSSELR_EL1,	/* Cache Size Selection Register */
 	TPIDR_EL0,	/* Thread ID, User R/W */
 	TPIDRRO_EL0,	/* Thread ID, User R/O */
+	SCXTNUM_EL0,	/* R/W Software Context Number */
 	TPIDR_EL1,	/* Thread ID, Privileged */
 	CNTKCTL_EL1,	/* Timer Control Register (EL1) */
 	PAR_EL1,	/* Physical Address Register */
@@ -519,6 +520,7 @@ enum vcpu_sysreg {
 	CNTHP_CVAL_EL2,
 	CNTHV_CTL_EL2,
 	CNTHV_CVAL_EL2,
+	SCXTNUM_EL2,
 
 	/* Anything from this can be RES0/RES1 sanitised */
 	MARKER(__SANITISED_REG_START__),
@@ -584,6 +586,8 @@ enum vcpu_sysreg {
 	VNCR(CNTV_CTL_EL0),
 	VNCR(CNTP_CVAL_EL0),
 	VNCR(CNTP_CTL_EL0),
+
+	VNCR(SCXTNUM_EL1),
 
 	VNCR(ICH_LR0_EL2),
 	VNCR(ICH_LR1_EL2),
@@ -1648,6 +1652,11 @@ void kvm_set_vm_id_reg(struct kvm *kvm, u32 reg, u64 val);
 
 #define kvm_has_s1poe(k)				\
 	(kvm_has_feat((k), ID_AA64MMFR3_EL1, S1POE, IMP))
+
+#define kvm_has_scxtnum(k)						\
+	(kvm_has_feat((k), ID_AA64PFR0_EL1, CSV2, CSV2_2) ||		\
+	 (kvm_has_feat((k), ID_AA64PFR0_EL1, CSV2, IMP) &&		\
+	  kvm_has_feat((k), ID_AA64PFR1_EL1, CSV2_frac, CSV2_1p2)))
 
 static inline bool kvm_arch_has_irq_bypass(void)
 {
