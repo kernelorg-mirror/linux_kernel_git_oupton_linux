@@ -1796,17 +1796,15 @@ static u64 sanitise_id_aa64pfr0_el1(const struct kvm_vcpu *vcpu, u64 val)
 		val &= ~ID_AA64PFR0_EL1_SVE_MASK;
 
 	/*
-	 * The default is to expose CSV2 == 1 if the HW isn't affected.
-	 * Although this is a per-CPU feature, we make it global because
-	 * asymmetric systems are just a nuisance.
-	 *
-	 * Userspace can override this as long as it doesn't promise
-	 * the impossible.
+	 * Limit the hardware value of CSV2 based on the mitigation state of
+	 * the system.
 	 */
-	if (arm64_get_spectre_v2_state() == SPECTRE_UNAFFECTED) {
+	val = ID_REG_LIMIT_FIELD_ENUM(val, ID_AA64PFR0_EL1, CSV2, CSV2_3);
+	if (arm64_get_spectre_bhb_state() != SPECTRE_UNAFFECTED)
+		val = ID_REG_LIMIT_FIELD_ENUM(val, ID_AA64PFR0_EL1, CSV2, CSV2_2);
+	if (arm64_get_spectre_v2_state() != SPECTRE_UNAFFECTED)
 		val &= ~ID_AA64PFR0_EL1_CSV2_MASK;
-		val |= SYS_FIELD_PREP_ENUM(ID_AA64PFR0_EL1, CSV2, IMP);
-	}
+
 	if (arm64_get_meltdown_state() == SPECTRE_UNAFFECTED) {
 		val &= ~ID_AA64PFR0_EL1_CSV3_MASK;
 		val |= SYS_FIELD_PREP_ENUM(ID_AA64PFR0_EL1, CSV3, IMP);
