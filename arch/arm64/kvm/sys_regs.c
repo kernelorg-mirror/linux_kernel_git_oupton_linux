@@ -3075,7 +3075,7 @@ static const struct sys_reg_desc sys_reg_descs[] = {
 	{ SYS_DESC(SYS_ACCDATA_EL1), undef_access },
 
 	{ SYS_DESC(SYS_SCXTNUM_EL1), NULL, reset_unknown, SCXTNUM_EL1,
-	  .visibility = scxtnum_visiblity },
+	  .visibility = scxtnum_visibility },
 
 	{ SYS_DESC(SYS_CNTKCTL_EL1), NULL, reset_val, CNTKCTL_EL1, 0},
 
@@ -3414,7 +3414,7 @@ static const struct sys_reg_desc sys_reg_descs[] = {
 
 	EL2_REG(CONTEXTIDR_EL2, access_rw, reset_val, 0),
 	EL2_REG(TPIDR_EL2, access_rw, reset_val, 0),
-	EL2_REG_FILTERED(SCXTNUM_EL2, NULL, reset_unknown, scxtnum_visibility),
+	EL2_REG_FILTERED(SCXTNUM_EL2, NULL, reset_unknown, 0, scxtnum_visibility),
 
 	EL2_REG_VNCR(CNTVOFF_EL2, reset_val, 0),
 	EL2_REG(CNTHCTL_EL2, access_rw, reset_val, 0),
