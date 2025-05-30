@@ -2836,3 +2836,36 @@ int kvm_inject_nested_sea(struct kvm_vcpu *vcpu, bool iabt, u64 addr)
 
 	return kvm_inject_s2_fault(vcpu, esr);
 }
+
+/*
+ * Injects an SError into a nested guest according to the exception routing /
+ * masking rules in R_NMMXK and R_JFKMF, respectively.
+ */
+int kvm_inject_nested_serror(struct kvm_vcpu *vcpu, u64 esr)
+{
+	bool el2 = __vcpu_sys_reg(vcpu, HCR_EL2) & (HCR_TGE | HCR_AMO);
+
+	/*
+	 * SError exception routing does not require a translation regime
+	 * change; let hardware deliver the vSError.
+	 */
+	if (is_hyp_ctxt(vcpu) == el2) {
+		__kvm_inject_serror_esr(vcpu, esr);
+		return 1;
+	}
+
+	/*
+	 * SError exception routing requires a regime change but is not subject
+	 * to masking.
+	 */
+	if (!is_hyp_ctxt(vcpu) && el2)
+		return kvm_inject_nested(vcpu, esr, except_type_serror);
+
+	/*
+	 * SError exception remains pending. Stash the ESR and attempt injection
+	 * when the routing / masking changes.
+	 */
+	vcpu_set_vsesr(vcpu, esr);
+	vcpu_set_flag(vcpu, NESTED_SERROR_PENDING);
+	return 1;
+}

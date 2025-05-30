@@ -221,25 +221,19 @@ void kvm_inject_undefined(struct kvm_vcpu *vcpu)
 		inject_undef64(vcpu);
 }
 
-void kvm_set_sei_esr(struct kvm_vcpu *vcpu, u64 esr)
+void __kvm_inject_serror_esr(struct kvm_vcpu *vcpu, u64 esr)
 {
 	vcpu_set_vsesr(vcpu, esr & ESR_ELx_ISS_MASK);
 	*vcpu_hcr(vcpu) |= HCR_VSE;
 }
 
-/**
- * kvm_inject_vabt - inject an async abort / SError into the guest
- * @vcpu: The VCPU to receive the exception
- *
- * It is assumed that this code is called from the VCPU thread and that the
- * VCPU therefore is not currently executing guest code.
- *
- * Systems with the RAS Extensions specify an imp-def ESR (ISV/IDS = 1) with
- * the remaining ISS all-zeros so that this error is not interpreted as an
- * uncategorized RAS error. Without the RAS Extensions we can't specify an ESR
- * value, so the CPU generates an imp-def value.
- */
-void kvm_inject_vabt(struct kvm_vcpu *vcpu)
+int kvm_inject_serror_esr(struct kvm_vcpu *vcpu, u64 esr)
 {
-	kvm_set_sei_esr(vcpu, ESR_ELx_ISV);
+	lockdep_assert_held(&vcpu->mutex);
+
+	if (vcpu_has_nv(vcpu))
+		return kvm_inject_nested_serror(vcpu, esr);
+
+	__kvm_inject_serror_esr(vcpu, esr);
+	return 1;
 }
