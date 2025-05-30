@@ -177,6 +177,8 @@ int kvm_inject_sea(struct kvm_vcpu *vcpu, bool iabt, u64 addr)
 void kvm_inject_size_fault(struct kvm_vcpu *vcpu)
 {
 	unsigned long addr, esr;
+	int esr_elx;
+
 
 	addr  = kvm_vcpu_get_fault_ipa(vcpu);
 	addr |= kvm_vcpu_get_hfar(vcpu) & GENMASK(11, 0);
@@ -194,9 +196,14 @@ void kvm_inject_size_fault(struct kvm_vcpu *vcpu)
 	    !(vcpu_read_sys_reg(vcpu, TCR_EL1) & TTBCR_EAE))
 		return;
 
-	esr = vcpu_read_sys_reg(vcpu, ESR_EL1);
+	if (match_target_el(vcpu, unpack_vcpu_flag(EXCEPT_AA64_EL2_SYNC)))
+		esr_elx = ESR_EL2;
+	else
+		esr_elx = ESR_EL1;
+
+	esr = vcpu_read_sys_reg(vcpu, esr_elx);
 	esr &= ~GENMASK_ULL(5, 0);
-	vcpu_write_sys_reg(vcpu, esr, ESR_EL1);
+	vcpu_write_sys_reg(vcpu, esr, esr_elx);
 }
 
 /**
