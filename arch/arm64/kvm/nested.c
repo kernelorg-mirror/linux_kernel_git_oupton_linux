@@ -65,11 +65,64 @@ static int init_nested_s2_mmu(struct kvm *kvm, struct kvm_s2_mmu *mmu)
 	return kvm_init_stage2_mmu(kvm, mmu, kvm_get_pa_bits(kvm));
 }
 
+static int realloc_nested_mmus(struct kvm *kvm)
+{
+	struct kvm_s2_mmu *tmp;
+	int num_mmus, ret = 0;
+
+	num_mmus = atomic_read(&kvm->online_vcpus) * S2_MMU_PER_VCPU;
+	if (num_mmus == kvm->arch.nested_mmus_size)
+		return 0;
+
+	/*
+	 * Let's treat memory allocation failures as benign: If we fail to
+	 * allocate anything, return an error and keep the
+	 * previously-allocated array alive. Userspace may try to recover
+	 * by intializing the vcpu again, and there is no reason to affect
+	 * the whole VM for this.
+	 */
+	tmp = kvmalloc(size_mul(sizeof(*kvm->arch.nested_mmus), num_mmus),
+		       GFP_KERNEL_ACCOUNT | __GFP_ZERO);
+	if (!tmp)
+		return -ENOMEM;
+
+	for (int i = kvm->arch.nested_mmus_size; !ret && i < num_mmus; i++)
+		ret = init_nested_s2_mmu(kvm, &tmp[i]);
+
+	if (ret) {
+		for (int i = kvm->arch.nested_mmus_size; i < num_mmus; i++)
+			kvm_free_stage2_pgd(&tmp[i]);
+
+		kvfree(tmp);
+		return ret;
+	}
+
+	/*
+	 * Take the MMU lock for write as we're about to poke at state that's
+	 * visible to MMU notifiers.
+	 */
+	guard(write_lock)(&kvm->mmu_lock);
+
+	/*
+	 * Avoid pgd reallocation for previously-allocated stage-2 MMUs by
+	 * copying the structs into the new array and fixing the back-pointers
+	 * to reference the new structs.
+	 */
+	for (int i = 0; i < kvm->arch.nested_mmus_size; i++) {
+		tmp[i] = kvm->arch.nested_mmus[i];
+		tmp[i].pgt->mmu = &tmp[i];
+	}
+
+	kvm->arch.nested_mmus_size = num_mmus;
+	swap(kvm->arch.nested_mmus, tmp);
+	kvfree(tmp);
+	return 0;
+}
+
 int kvm_vcpu_init_nested(struct kvm_vcpu *vcpu)
 {
 	struct kvm *kvm = vcpu->kvm;
-	struct kvm_s2_mmu *tmp;
-	int num_mmus, ret = 0;
+	int ret;
 
 	if (test_bit(KVM_ARM_VCPU_HAS_EL2_E2H0, kvm->arch.vcpu_features) &&
 	    !cpus_have_final_cap(ARM64_HAS_HCR_NV1))
@@ -82,43 +135,12 @@ int kvm_vcpu_init_nested(struct kvm_vcpu *vcpu)
 	if (!vcpu->arch.ctxt.vncr_array)
 		return -ENOMEM;
 
-	/*
-	 * Let's treat memory allocation failures as benign: If we fail to
-	 * allocate anything, return an error and keep the allocated array
-	 * alive. Userspace may try to recover by intializing the vcpu
-	 * again, and there is no reason to affect the whole VM for this.
-	 */
-	num_mmus = atomic_read(&kvm->online_vcpus) * S2_MMU_PER_VCPU;
-	tmp = kvrealloc(kvm->arch.nested_mmus,
-			size_mul(sizeof(*kvm->arch.nested_mmus), num_mmus),
-			GFP_KERNEL_ACCOUNT | __GFP_ZERO);
-	if (!tmp)
-		return -ENOMEM;
-
-	swap(kvm->arch.nested_mmus, tmp);
-
-	/*
-	 * If we went through a realocation, adjust the MMU back-pointers in
-	 * the previously initialised kvm_pgtable structures.
-	 */
-	if (kvm->arch.nested_mmus != tmp)
-		for (int i = 0; i < kvm->arch.nested_mmus_size; i++)
-			kvm->arch.nested_mmus[i].pgt->mmu = &kvm->arch.nested_mmus[i];
-
-	for (int i = kvm->arch.nested_mmus_size; !ret && i < num_mmus; i++)
-		ret = init_nested_s2_mmu(kvm, &kvm->arch.nested_mmus[i]);
-
+	ret = realloc_nested_mmus(kvm);
 	if (ret) {
-		for (int i = kvm->arch.nested_mmus_size; i < num_mmus; i++)
-			kvm_free_stage2_pgd(&kvm->arch.nested_mmus[i]);
-
 		free_page((unsigned long)vcpu->arch.ctxt.vncr_array);
 		vcpu->arch.ctxt.vncr_array = NULL;
-
 		return ret;
 	}
-
-	kvm->arch.nested_mmus_size = num_mmus;
 
 	return 0;
 }
@@ -1107,9 +1129,13 @@ void kvm_arch_flush_shadow_all(struct kvm *kvm)
 		if (!WARN_ON(atomic_read(&mmu->refcnt)))
 			kvm_free_stage2_pgd(mmu);
 	}
-	kvfree(kvm->arch.nested_mmus);
-	kvm->arch.nested_mmus = NULL;
-	kvm->arch.nested_mmus_size = 0;
+
+	scoped_guard(write_lock, &kvm->mmu_lock) {
+		kvfree(kvm->arch.nested_mmus);
+		kvm->arch.nested_mmus = NULL;
+		kvm->arch.nested_mmus_size = 0;
+	}
+
 	kvm_uninit_stage2_mmu(kvm);
 }
 
