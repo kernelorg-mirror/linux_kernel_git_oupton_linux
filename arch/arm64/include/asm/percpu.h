@@ -8,6 +8,7 @@
 #include <linux/preempt.h>
 
 #include <asm/alternative.h>
+#include <asm/cpufeature.h>
 #include <asm/cmpxchg.h>
 #include <asm/stack_pointer.h>
 #include <asm/sysreg.h>
@@ -46,8 +47,31 @@ static inline unsigned long __kern_my_cpu_offset(void)
 	return off;
 }
 
+static inline unsigned long __noalt_my_cpu_offset(void)
+{
+	unsigned long off;
+
+	/*
+	 * The FIPS140-certified crypto module is allergic to anything relying
+	 * on the alternatives framework, as it checks the integrity of text
+	 * and data sections at runtime.
+	 */
+	if (cpus_have_cap(ARM64_HAS_VIRT_HOST_EXTN))
+		asm("mrs %0, tpidr_el2"
+		    : "=r" (off) :
+		    "Q" (*(const unsigned long *)current_stack_pointer));
+	else
+		asm("mrs %0, tpidr_el1"
+		    : "=r" (off) :
+		    "Q" (*(const unsigned long *)current_stack_pointer));
+
+	return off;
+}
+
 #ifdef __KVM_NVHE_HYPERVISOR__
 #define __my_cpu_offset __hyp_my_cpu_offset()
+#elif defined(BUILD_FIPS140_KO)
+#define __my_cpu_offset __noalt_my_cpu_offset()
 #else
 #define __my_cpu_offset __kern_my_cpu_offset()
 #endif
