@@ -13,7 +13,7 @@
 #include "xe_drm_client.h"
 #include "xe_exec_queue.h"
 #include "xe_gt.h"
-#include "xe_gt_tlb_invalidation.h"
+#include "xe_gt_tlb_inval_job.h"
 #include "xe_migrate.h"
 #include "xe_pt_types.h"
 #include "xe_pt_walk.h"
@@ -907,6 +907,11 @@ bool xe_pt_zap_ptes(struct xe_tile *tile, struct xe_vma *vma)
 	struct xe_pt *pt = xe_vma_vm(vma)->pt_root[tile->id];
 	u8 pt_mask = (vma->tile_present & ~vma->tile_invalidated);
 
+	if (xe_vma_bo(vma))
+		xe_bo_assert_held(xe_vma_bo(vma));
+	else if (xe_vma_is_userptr(vma))
+		lockdep_assert_held(&xe_vma_vm(vma)->userptr.notifier_lock);
+
 	if (!(pt_mask & BIT(tile->id)))
 		return false;
 
@@ -1256,6 +1261,8 @@ static int op_add_deps(struct xe_vm *vm, struct xe_vma_op *op,
 }
 
 static int xe_pt_vm_dependencies(struct xe_sched_job *job,
+				 struct xe_gt_tlb_inval_job *ijob,
+				 struct xe_gt_tlb_inval_job *mjob,
 				 struct xe_vm *vm,
 				 struct xe_vma_ops *vops,
 				 struct xe_vm_pgtable_update_ops *pt_update_ops,
@@ -1323,6 +1330,20 @@ static int xe_pt_vm_dependencies(struct xe_sched_job *job,
 	for (i = 0; job && !err && i < vops->num_syncs; i++)
 		err = xe_sync_entry_add_deps(&vops->syncs[i], job);
 
+	if (job) {
+		if (ijob) {
+			err = xe_gt_tlb_inval_job_alloc_dep(ijob);
+			if (err)
+				return err;
+		}
+
+		if (mjob) {
+			err = xe_gt_tlb_inval_job_alloc_dep(mjob);
+			if (err)
+				return err;
+		}
+	}
+
 	return err;
 }
 
@@ -1334,7 +1355,8 @@ static int xe_pt_pre_commit(struct xe_migrate_pt_update *pt_update)
 	struct xe_vm_pgtable_update_ops *pt_update_ops =
 		&vops->pt_update_ops[pt_update->tile_id];
 
-	return xe_pt_vm_dependencies(pt_update->job, vm, pt_update->vops,
+	return xe_pt_vm_dependencies(pt_update->job, pt_update->ijob,
+				     pt_update->mjob, vm, pt_update->vops,
 				     pt_update_ops, rftree);
 }
 
@@ -1458,6 +1480,7 @@ static int xe_pt_svm_pre_commit(struct xe_migrate_pt_update *pt_update)
 	struct xe_vm *vm = pt_update->vops->vm;
 	struct xe_vma_ops *vops = pt_update->vops;
 	struct xe_vma_op *op;
+	unsigned long i;
 	int err;
 
 	err = xe_pt_pre_commit(pt_update);
@@ -1467,95 +1490,41 @@ static int xe_pt_svm_pre_commit(struct xe_migrate_pt_update *pt_update)
 	xe_svm_notifier_lock(vm);
 
 	list_for_each_entry(op, &vops->list, link) {
-		struct xe_svm_range *range = op->map_range.range;
+		struct xe_svm_range *range = NULL;
 
 		if (op->subop == XE_VMA_SUBOP_UNMAP_RANGE)
 			continue;
 
-		xe_svm_range_debug(range, "PRE-COMMIT");
+		if (op->base.op == DRM_GPUVA_OP_PREFETCH) {
+			xe_assert(vm->xe,
+				  xe_vma_is_cpu_addr_mirror(gpuva_to_vma(op->base.prefetch.va)));
+			xa_for_each(&op->prefetch_range.range, i, range) {
+				xe_svm_range_debug(range, "PRE-COMMIT");
 
-		xe_assert(vm->xe, xe_vma_is_cpu_addr_mirror(op->map_range.vma));
-		xe_assert(vm->xe, op->subop == XE_VMA_SUBOP_MAP_RANGE);
+				if (!xe_svm_range_pages_valid(range)) {
+					xe_svm_range_debug(range, "PRE-COMMIT - RETRY");
+					xe_svm_notifier_unlock(vm);
+					return -ENODATA;
+				}
+			}
+		} else {
+			xe_assert(vm->xe, xe_vma_is_cpu_addr_mirror(op->map_range.vma));
+			xe_assert(vm->xe, op->subop == XE_VMA_SUBOP_MAP_RANGE);
+			range = op->map_range.range;
 
-		if (!xe_svm_range_pages_valid(range)) {
-			xe_svm_range_debug(range, "PRE-COMMIT - RETRY");
-			xe_svm_notifier_unlock(vm);
-			return -EAGAIN;
+			xe_svm_range_debug(range, "PRE-COMMIT");
+
+			if (!xe_svm_range_pages_valid(range)) {
+				xe_svm_range_debug(range, "PRE-COMMIT - RETRY");
+				xe_svm_notifier_unlock(vm);
+				return -EAGAIN;
+			}
 		}
 	}
 
 	return 0;
 }
 #endif
-
-struct invalidation_fence {
-	struct xe_gt_tlb_invalidation_fence base;
-	struct xe_gt *gt;
-	struct dma_fence *fence;
-	struct dma_fence_cb cb;
-	struct work_struct work;
-	u64 start;
-	u64 end;
-	u32 asid;
-};
-
-static void invalidation_fence_cb(struct dma_fence *fence,
-				  struct dma_fence_cb *cb)
-{
-	struct invalidation_fence *ifence =
-		container_of(cb, struct invalidation_fence, cb);
-	struct xe_device *xe = gt_to_xe(ifence->gt);
-
-	trace_xe_gt_tlb_invalidation_fence_cb(xe, &ifence->base);
-	if (!ifence->fence->error) {
-		queue_work(system_wq, &ifence->work);
-	} else {
-		ifence->base.base.error = ifence->fence->error;
-		xe_gt_tlb_invalidation_fence_signal(&ifence->base);
-	}
-	dma_fence_put(ifence->fence);
-}
-
-static void invalidation_fence_work_func(struct work_struct *w)
-{
-	struct invalidation_fence *ifence =
-		container_of(w, struct invalidation_fence, work);
-	struct xe_device *xe = gt_to_xe(ifence->gt);
-
-	trace_xe_gt_tlb_invalidation_fence_work_func(xe, &ifence->base);
-	xe_gt_tlb_invalidation_range(ifence->gt, &ifence->base, ifence->start,
-				     ifence->end, ifence->asid);
-}
-
-static void invalidation_fence_init(struct xe_gt *gt,
-				    struct invalidation_fence *ifence,
-				    struct dma_fence *fence,
-				    u64 start, u64 end, u32 asid)
-{
-	int ret;
-
-	trace_xe_gt_tlb_invalidation_fence_create(gt_to_xe(gt), &ifence->base);
-
-	xe_gt_tlb_invalidation_fence_init(gt, &ifence->base, false);
-
-	ifence->fence = fence;
-	ifence->gt = gt;
-	ifence->start = start;
-	ifence->end = end;
-	ifence->asid = asid;
-
-	INIT_WORK(&ifence->work, invalidation_fence_work_func);
-	ret = dma_fence_add_callback(fence, &ifence->cb, invalidation_fence_cb);
-	if (ret == -ENOENT) {
-		dma_fence_put(ifence->fence);	/* Usually dropped in CB */
-		invalidation_fence_work_func(&ifence->work);
-	} else if (ret) {
-		dma_fence_put(&ifence->base.base);	/* Caller ref */
-		dma_fence_put(&ifence->base.base);	/* Creation ref */
-	}
-
-	xe_gt_assert(gt, !ret || ret == -ENOENT);
-}
 
 struct xe_pt_stage_unbind_walk {
 	/** @base: The pagewalk base-class. */
@@ -1974,6 +1943,32 @@ static int unbind_op_prepare(struct xe_tile *tile,
 	return 0;
 }
 
+static bool
+xe_pt_op_check_range_skip_invalidation(struct xe_vm_pgtable_update_op *pt_op,
+				       struct xe_svm_range *range)
+{
+	struct xe_vm_pgtable_update *update = pt_op->entries;
+
+	XE_WARN_ON(!pt_op->num_entries);
+
+	/*
+	 * We can't skip the invalidation if we are removing PTEs that span more
+	 * than the range, do some checks to ensure we are removing PTEs that
+	 * are invalid.
+	 */
+
+	if (pt_op->num_entries > 1)
+		return false;
+
+	if (update->pt->level == 0)
+		return true;
+
+	if (update->pt->level == 1)
+		return xe_svm_range_size(range) >= SZ_2M;
+
+	return false;
+}
+
 static int unbind_range_prepare(struct xe_vm *vm,
 				struct xe_tile *tile,
 				struct xe_vm_pgtable_update_ops *pt_update_ops,
@@ -2002,7 +1997,10 @@ static int unbind_range_prepare(struct xe_vm *vm,
 					 range->base.itree.last + 1);
 	++pt_update_ops->current_op;
 	pt_update_ops->needs_svm_lock = true;
-	pt_update_ops->needs_invalidation = true;
+	pt_update_ops->needs_invalidation |= xe_vm_has_scratch(vm) ||
+		xe_vm_has_valid_gpu_mapping(tile, range->tile_present,
+					    range->tile_invalidated) ||
+		!xe_pt_op_check_range_skip_invalidation(pt_op, range);
 
 	xe_pt_commit_prepare_unbind(XE_INVALID_VMA, pt_op->entries,
 				    pt_op->num_entries);
@@ -2065,11 +2063,20 @@ static int op_prepare(struct xe_vm *vm,
 	{
 		struct xe_vma *vma = gpuva_to_vma(op->base.prefetch.va);
 
-		if (xe_vma_is_cpu_addr_mirror(vma))
-			break;
+		if (xe_vma_is_cpu_addr_mirror(vma)) {
+			struct xe_svm_range *range;
+			unsigned long i;
 
-		err = bind_op_prepare(vm, tile, pt_update_ops, vma, false);
-		pt_update_ops->wait_vm_kernel = true;
+			xa_for_each(&op->prefetch_range.range, i, range) {
+				err = bind_range_prepare(vm, tile, pt_update_ops,
+							 vma, range);
+				if (err)
+					return err;
+			}
+		} else {
+			err = bind_op_prepare(vm, tile, pt_update_ops, vma, false);
+			pt_update_ops->wait_vm_kernel = true;
+		}
 		break;
 	}
 	case DRM_GPUVA_OP_DRIVER:
@@ -2166,10 +2173,15 @@ static void bind_op_commit(struct xe_vm *vm, struct xe_tile *tile,
 					   DMA_RESV_USAGE_KERNEL :
 					   DMA_RESV_USAGE_BOOKKEEP);
 	}
-	vma->tile_present |= BIT(tile->id);
-	vma->tile_staged &= ~BIT(tile->id);
+	/* All WRITE_ONCE pair with READ_ONCE in xe_vm_has_valid_gpu_mapping() */
+	WRITE_ONCE(vma->tile_present, vma->tile_present | BIT(tile->id));
 	if (invalidate_on_bind)
-		vma->tile_invalidated |= BIT(tile->id);
+		WRITE_ONCE(vma->tile_invalidated,
+			   vma->tile_invalidated | BIT(tile->id));
+	else
+		WRITE_ONCE(vma->tile_invalidated,
+			   vma->tile_invalidated & ~BIT(tile->id));
+	vma->tile_staged &= ~BIT(tile->id);
 	if (xe_vma_is_userptr(vma)) {
 		lockdep_assert_held_read(&vm->userptr.notifier_lock);
 		to_userptr_vma(vma)->userptr.initial_bind = true;
@@ -2214,6 +2226,18 @@ static void unbind_op_commit(struct xe_vm *vm, struct xe_tile *tile,
 			spin_unlock(&vm->userptr.invalidated_lock);
 		}
 	}
+}
+
+static void range_present_and_invalidated_tile(struct xe_vm *vm,
+					       struct xe_svm_range *range,
+					       u8 tile_id)
+{
+	/* All WRITE_ONCE pair with READ_ONCE in xe_vm_has_valid_gpu_mapping() */
+
+	lockdep_assert_held(&vm->svm.gpusvm.notifier_lock);
+
+	WRITE_ONCE(range->tile_present, range->tile_present | BIT(tile_id));
+	WRITE_ONCE(range->tile_invalidated, range->tile_invalidated & ~BIT(tile_id));
 }
 
 static void op_commit(struct xe_vm *vm,
@@ -2263,27 +2287,28 @@ static void op_commit(struct xe_vm *vm,
 	{
 		struct xe_vma *vma = gpuva_to_vma(op->base.prefetch.va);
 
-		if (!xe_vma_is_cpu_addr_mirror(vma))
+		if (xe_vma_is_cpu_addr_mirror(vma)) {
+			struct xe_svm_range *range = NULL;
+			unsigned long i;
+
+			xa_for_each(&op->prefetch_range.range, i, range)
+				range_present_and_invalidated_tile(vm, range, tile->id);
+		} else {
 			bind_op_commit(vm, tile, pt_update_ops, vma, fence,
 				       fence2, false);
+		}
 		break;
 	}
 	case DRM_GPUVA_OP_DRIVER:
 	{
-		/* WRITE_ONCE pairs with READ_ONCE in xe_svm.c */
-
-		if (op->subop == XE_VMA_SUBOP_MAP_RANGE) {
-			WRITE_ONCE(op->map_range.range->tile_present,
-				   op->map_range.range->tile_present |
-				   BIT(tile->id));
-			WRITE_ONCE(op->map_range.range->tile_invalidated,
-				   op->map_range.range->tile_invalidated &
-				   ~BIT(tile->id));
-		} else if (op->subop == XE_VMA_SUBOP_UNMAP_RANGE) {
+		/* WRITE_ONCE pairs with READ_ONCE in xe_vm_has_valid_gpu_mapping() */
+		if (op->subop == XE_VMA_SUBOP_MAP_RANGE)
+			range_present_and_invalidated_tile(vm, op->map_range.range, tile->id);
+		else if (op->subop == XE_VMA_SUBOP_UNMAP_RANGE)
 			WRITE_ONCE(op->unmap_range.range->tile_present,
 				   op->unmap_range.range->tile_present &
 				   ~BIT(tile->id));
-		}
+
 		break;
 	}
 	default:
@@ -2330,8 +2355,8 @@ xe_pt_update_ops_run(struct xe_tile *tile, struct xe_vma_ops *vops)
 	struct xe_vm *vm = vops->vm;
 	struct xe_vm_pgtable_update_ops *pt_update_ops =
 		&vops->pt_update_ops[tile->id];
-	struct dma_fence *fence;
-	struct invalidation_fence *ifence = NULL, *mfence = NULL;
+	struct dma_fence *fence, *ifence, *mfence;
+	struct xe_gt_tlb_inval_job *ijob = NULL, *mjob = NULL;
 	struct dma_fence **fences = NULL;
 	struct dma_fence_array *cf = NULL;
 	struct xe_range_fence *rfence;
@@ -2363,26 +2388,38 @@ xe_pt_update_ops_run(struct xe_tile *tile, struct xe_vma_ops *vops)
 #endif
 
 	if (pt_update_ops->needs_invalidation) {
-		ifence = kzalloc(sizeof(*ifence), GFP_KERNEL);
-		if (!ifence) {
-			err = -ENOMEM;
+		ijob = xe_gt_tlb_inval_job_create(pt_update_ops->q,
+						  tile->primary_gt,
+						  pt_update_ops->start,
+						  pt_update_ops->last,
+						  vm->usm.asid);
+		if (IS_ERR(ijob)) {
+			err = PTR_ERR(ijob);
 			goto kill_vm_tile1;
 		}
+		update.ijob = ijob;
+
 		if (tile->media_gt) {
-			mfence = kzalloc(sizeof(*ifence), GFP_KERNEL);
-			if (!mfence) {
-				err = -ENOMEM;
-				goto free_ifence;
+			mjob = xe_gt_tlb_inval_job_create(pt_update_ops->q,
+							  tile->media_gt,
+							  pt_update_ops->start,
+							  pt_update_ops->last,
+							  vm->usm.asid);
+			if (IS_ERR(mjob)) {
+				err = PTR_ERR(mjob);
+				goto free_ijob;
 			}
+			update.mjob = mjob;
+
 			fences = kmalloc_array(2, sizeof(*fences), GFP_KERNEL);
 			if (!fences) {
 				err = -ENOMEM;
-				goto free_ifence;
+				goto free_ijob;
 			}
 			cf = dma_fence_array_alloc(2);
 			if (!cf) {
 				err = -ENOMEM;
-				goto free_ifence;
+				goto free_ijob;
 			}
 		}
 	}
@@ -2390,7 +2427,7 @@ xe_pt_update_ops_run(struct xe_tile *tile, struct xe_vma_ops *vops)
 	rfence = kzalloc(sizeof(*rfence), GFP_KERNEL);
 	if (!rfence) {
 		err = -ENOMEM;
-		goto free_ifence;
+		goto free_ijob;
 	}
 
 	fence = xe_migrate_update_pgtables(tile->migrate, &update);
@@ -2414,30 +2451,31 @@ xe_pt_update_ops_run(struct xe_tile *tile, struct xe_vma_ops *vops)
 				  pt_update_ops->last, fence))
 		dma_fence_wait(fence, false);
 
-	/* tlb invalidation must be done before signaling rebind */
-	if (ifence) {
-		if (mfence)
-			dma_fence_get(fence);
-		invalidation_fence_init(tile->primary_gt, ifence, fence,
-					pt_update_ops->start,
-					pt_update_ops->last, vm->usm.asid);
-		if (mfence) {
-			invalidation_fence_init(tile->media_gt, mfence, fence,
-						pt_update_ops->start,
-						pt_update_ops->last, vm->usm.asid);
-			fences[0] = &ifence->base.base;
-			fences[1] = &mfence->base.base;
+	/* tlb invalidation must be done before signaling unbind/rebind */
+	if (ijob) {
+		struct dma_fence *__fence;
+
+		ifence = xe_gt_tlb_inval_job_push(ijob, tile->migrate, fence);
+		__fence = ifence;
+
+		if (mjob) {
+			fences[0] = ifence;
+			mfence = xe_gt_tlb_inval_job_push(mjob, tile->migrate,
+							  fence);
+			fences[1] = mfence;
+
 			dma_fence_array_init(cf, 2, fences,
 					     vm->composite_fence_ctx,
 					     vm->composite_fence_seqno++,
 					     false);
-			fence = &cf->base;
-		} else {
-			fence = &ifence->base.base;
+			__fence = &cf->base;
 		}
+
+		dma_fence_put(fence);
+		fence = __fence;
 	}
 
-	if (!mfence) {
+	if (!mjob) {
 		dma_resv_add_fence(xe_vm_resv(vm), fence,
 				   pt_update_ops->wait_vm_bookkeep ?
 				   DMA_RESV_USAGE_KERNEL :
@@ -2446,19 +2484,19 @@ xe_pt_update_ops_run(struct xe_tile *tile, struct xe_vma_ops *vops)
 		list_for_each_entry(op, &vops->list, link)
 			op_commit(vops->vm, tile, pt_update_ops, op, fence, NULL);
 	} else {
-		dma_resv_add_fence(xe_vm_resv(vm), &ifence->base.base,
+		dma_resv_add_fence(xe_vm_resv(vm), ifence,
 				   pt_update_ops->wait_vm_bookkeep ?
 				   DMA_RESV_USAGE_KERNEL :
 				   DMA_RESV_USAGE_BOOKKEEP);
 
-		dma_resv_add_fence(xe_vm_resv(vm), &mfence->base.base,
+		dma_resv_add_fence(xe_vm_resv(vm), mfence,
 				   pt_update_ops->wait_vm_bookkeep ?
 				   DMA_RESV_USAGE_KERNEL :
 				   DMA_RESV_USAGE_BOOKKEEP);
 
 		list_for_each_entry(op, &vops->list, link)
-			op_commit(vops->vm, tile, pt_update_ops, op,
-				  &ifence->base.base, &mfence->base.base);
+			op_commit(vops->vm, tile, pt_update_ops, op, ifence,
+				  mfence);
 	}
 
 	if (pt_update_ops->needs_svm_lock)
@@ -2466,17 +2504,20 @@ xe_pt_update_ops_run(struct xe_tile *tile, struct xe_vma_ops *vops)
 	if (pt_update_ops->needs_userptr_lock)
 		up_read(&vm->userptr.notifier_lock);
 
+	xe_gt_tlb_inval_job_put(mjob);
+	xe_gt_tlb_inval_job_put(ijob);
+
 	return fence;
 
 free_rfence:
 	kfree(rfence);
-free_ifence:
+free_ijob:
 	kfree(cf);
 	kfree(fences);
-	kfree(mfence);
-	kfree(ifence);
+	xe_gt_tlb_inval_job_put(mjob);
+	xe_gt_tlb_inval_job_put(ijob);
 kill_vm_tile1:
-	if (err != -EAGAIN && tile->id)
+	if (err != -EAGAIN && err != -ENODATA && tile->id)
 		xe_vm_kill(vops->vm, false);
 
 	return ERR_PTR(err);

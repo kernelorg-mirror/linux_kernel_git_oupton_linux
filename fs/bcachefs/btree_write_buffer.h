@@ -89,6 +89,10 @@ static inline int bch2_journal_key_to_wb(struct bch_fs *c,
 			     struct journal_keys_to_wb *dst,
 			     enum btree_id btree, struct bkey_i *k)
 {
+	int ret = bch2_btree_write_buffer_insert_checks(c, btree, k);
+	if (unlikely(ret))
+		return ret;
+
 	EBUG_ON(!dst->seq);
 
 	return k->k.type == KEY_TYPE_accounting

@@ -5,6 +5,7 @@
 #define BCH_ERRCODES()								\
 	x(ERANGE,			ERANGE_option_too_small)		\
 	x(ERANGE,			ERANGE_option_too_big)			\
+	x(ERANGE,			projid_too_big)				\
 	x(EINVAL,			injected)				\
 	x(BCH_ERR_injected,		injected_fs_start)			\
 	x(EINVAL,			mount_option)				\
@@ -89,6 +90,8 @@
 	x(ENOMEM,			ENOMEM_disk_accounting)			\
 	x(ENOMEM,			ENOMEM_stripe_head_alloc)		\
 	x(ENOMEM,                       ENOMEM_journal_read_bucket)             \
+	x(ENOMEM,                       ENOMEM_acl)				\
+	x(ENOMEM,                       ENOMEM_move_extent)			\
 	x(ENOSPC,			ENOSPC_disk_reservation)		\
 	x(ENOSPC,			ENOSPC_bucket_alloc)			\
 	x(ENOSPC,			ENOSPC_disk_label_add)			\
@@ -137,7 +140,6 @@
 	x(BCH_ERR_transaction_restart,	transaction_restart_relock)		\
 	x(BCH_ERR_transaction_restart,	transaction_restart_relock_path)	\
 	x(BCH_ERR_transaction_restart,	transaction_restart_relock_path_intent)	\
-	x(BCH_ERR_transaction_restart,	transaction_restart_relock_after_fill)	\
 	x(BCH_ERR_transaction_restart,	transaction_restart_too_many_iters)	\
 	x(BCH_ERR_transaction_restart,	transaction_restart_lock_node_reused)	\
 	x(BCH_ERR_transaction_restart,	transaction_restart_fill_relock)	\
@@ -148,11 +150,8 @@
 	x(BCH_ERR_transaction_restart,	transaction_restart_would_deadlock_write)\
 	x(BCH_ERR_transaction_restart,	transaction_restart_deadlock_recursion_limit)\
 	x(BCH_ERR_transaction_restart,	transaction_restart_upgrade)		\
-	x(BCH_ERR_transaction_restart,	transaction_restart_key_cache_upgrade)	\
 	x(BCH_ERR_transaction_restart,	transaction_restart_key_cache_fill)	\
 	x(BCH_ERR_transaction_restart,	transaction_restart_key_cache_raced)	\
-	x(BCH_ERR_transaction_restart,	transaction_restart_key_cache_realloced)\
-	x(BCH_ERR_transaction_restart,	transaction_restart_journal_preres_get)	\
 	x(BCH_ERR_transaction_restart,	transaction_restart_split_race)		\
 	x(BCH_ERR_transaction_restart,	transaction_restart_write_buffer_flush)	\
 	x(BCH_ERR_transaction_restart,	transaction_restart_nested)		\
@@ -219,7 +218,17 @@
 	x(EINVAL,			varint_decode_error)			\
 	x(EINVAL,			erasure_coding_found_btree_node)	\
 	x(EINVAL,			option_negative)			\
+	x(EINVAL,			topology_repair)			\
+	x(BCH_ERR_topology_repair,	topology_repair_drop_this_node)		\
+	x(BCH_ERR_topology_repair,	topology_repair_drop_prev_node)		\
+	x(BCH_ERR_topology_repair,	topology_repair_did_fill_from_scan)	\
 	x(EOPNOTSUPP,			may_not_use_incompat_feature)		\
+	x(EOPNOTSUPP,			no_casefolding_without_utf8)		\
+	x(EOPNOTSUPP,			casefolding_disabled)			\
+	x(EOPNOTSUPP,			casefold_opt_is_dir_only)		\
+	x(EOPNOTSUPP,			unsupported_fsx_flag)			\
+	x(EOPNOTSUPP,			unsupported_fa_flag)			\
+	x(EOPNOTSUPP,			unsupported_fallocate_mode)		\
 	x(EROFS,			erofs_trans_commit)			\
 	x(EROFS,			erofs_no_writes)			\
 	x(EROFS,			erofs_journal_err)			\
@@ -241,7 +250,6 @@
 	x(BCH_ERR_journal_res_blocked,	journal_buf_enomem)			\
 	x(BCH_ERR_journal_res_blocked,	journal_stuck)				\
 	x(BCH_ERR_journal_res_blocked,	journal_retry_open)			\
-	x(BCH_ERR_journal_res_blocked,	journal_preres_get_blocked)		\
 	x(BCH_ERR_journal_res_blocked,	bucket_alloc_blocked)			\
 	x(BCH_ERR_journal_res_blocked,	stripe_alloc_blocked)			\
 	x(BCH_ERR_invalid,		invalid_sb)				\
@@ -287,7 +295,6 @@
 	x(EIO,				sb_not_downgraded)			\
 	x(EIO,				btree_node_write_all_failed)		\
 	x(EIO,				btree_node_read_error)			\
-	x(EIO,				btree_node_read_validate_error)		\
 	x(EIO,				btree_need_topology_repair)		\
 	x(EIO,				bucket_ref_update)			\
 	x(EIO,				trigger_alloc)				\

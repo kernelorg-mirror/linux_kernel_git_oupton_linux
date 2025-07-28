@@ -302,8 +302,10 @@ void vivid_update_quality(struct vivid_dev *dev)
 	 */
 	freq_modulus = (dev->tv_freq - 676 /* (43.25-1) * 16 */) % (6 * 16);
 	if (freq_modulus > 2 * 16) {
+		struct rnd_state prng;
+		prandom_seed_state(&prng, dev->tv_freq ^ 0x55);
 		tpg_s_quality(&dev->tpg, TPG_QUAL_NOISE,
-			next_pseudo_random32(dev->tv_freq ^ 0x55) & 0x3f);
+			prandom_u32_state(&prng) & 0x3f);
 		return;
 	}
 	if (freq_modulus < 12 /*0.75 * 16*/ || freq_modulus > 20 /*1.25 * 16*/)
@@ -454,8 +456,8 @@ void vivid_update_format_cap(struct vivid_dev *dev, bool keep_controls)
 	if (keep_controls)
 		return;
 
-	dims[0] = roundup(dev->src_rect.width, PIXEL_ARRAY_DIV);
-	dims[1] = roundup(dev->src_rect.height, PIXEL_ARRAY_DIV);
+	dims[0] = DIV_ROUND_UP(dev->src_rect.height, PIXEL_ARRAY_DIV);
+	dims[1] = DIV_ROUND_UP(dev->src_rect.width, PIXEL_ARRAY_DIV);
 	v4l2_ctrl_modify_dimensions(dev->pixel_array, dims);
 }
 

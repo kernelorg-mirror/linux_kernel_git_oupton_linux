@@ -297,9 +297,8 @@ static inline void bch2_journal_buf_put(struct journal *j, u64 seq)
 
 	s = journal_state_buf_put(j, idx);
 	if (!journal_state_count(s, idx)) {
-		spin_lock(&j->lock);
+		guard(spinlock)(&j->lock);
 		bch2_journal_buf_put_final(j, seq);
-		spin_unlock(&j->lock);
 	} else if (unlikely(s.cur_entry_offset == JOURNAL_ENTRY_BLOCKED_VAL))
 		wake_up(&j->wait);
 }
@@ -453,7 +452,7 @@ int bch2_fs_journal_alloc(struct bch_fs *);
 void bch2_dev_journal_stop(struct journal *, struct bch_dev *);
 
 void bch2_fs_journal_stop(struct journal *);
-int bch2_fs_journal_start(struct journal *, u64);
+int bch2_fs_journal_start(struct journal *, u64, u64);
 void bch2_journal_set_replay_done(struct journal *);
 
 void bch2_dev_journal_exit(struct bch_dev *);

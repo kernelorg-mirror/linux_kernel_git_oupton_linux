@@ -99,7 +99,9 @@ int bch2_create_trans(struct btree_trans *trans,
 		 * If we're not root, we have to own the subvolume being
 		 * snapshotted:
 		 */
-		if (uid && new_inode->bi_uid != uid) {
+		if (uid &&
+		    !capable(CAP_FOWNER) &&
+		    new_inode->bi_uid != uid) {
 			ret = -EPERM;
 			goto err;
 		}
@@ -625,13 +627,25 @@ static int __bch2_inum_to_path(struct btree_trans *trans,
 {
 	unsigned orig_pos = path->pos;
 	int ret = 0;
+	DARRAY(subvol_inum) inums = {};
+
+	if (!snapshot) {
+		ret = bch2_subvolume_get_snapshot(trans, subvol, &snapshot);
+		if (ret)
+			goto disconnected;
+	}
 
 	while (true) {
-		if (!snapshot) {
-			ret = bch2_subvolume_get_snapshot(trans, subvol, &snapshot);
-			if (ret)
-				goto disconnected;
+		subvol_inum n = (subvol_inum) { subvol ?: snapshot, inum };
+
+		if (darray_find_p(inums, i, i->subvol == n.subvol && i->inum == n.inum)) {
+			prt_str_reversed(path, "(loop)");
+			break;
 		}
+
+		ret = darray_push(&inums, n);
+		if (ret)
+			goto err;
 
 		struct bch_inode_unpacked inode;
 		ret = bch2_inode_find_by_inum_snapshot(trans, inum, snapshot, &inode, 0);
@@ -650,7 +664,9 @@ static int __bch2_inum_to_path(struct btree_trans *trans,
 		inum = inode.bi_dir;
 		if (inode.bi_parent_subvol) {
 			subvol = inode.bi_parent_subvol;
-			snapshot = 0;
+			ret = bch2_subvolume_get_snapshot(trans, inode.bi_parent_subvol, &snapshot);
+			if (ret)
+				goto disconnected;
 		}
 
 		struct btree_iter d_iter;
@@ -662,6 +678,7 @@ static int __bch2_inum_to_path(struct btree_trans *trans,
 			goto disconnected;
 
 		struct qstr dirent_name = bch2_dirent_get_name(d);
+
 		prt_bytes_reversed(path, dirent_name.name, dirent_name.len);
 
 		prt_char(path, '/');
@@ -677,8 +694,10 @@ out:
 		goto err;
 
 	reverse_bytes(path->buf + orig_pos, path->pos - orig_pos);
+	darray_exit(&inums);
 	return 0;
 err:
+	darray_exit(&inums);
 	return ret;
 disconnected:
 	if (bch2_err_matches(ret, BCH_ERR_transaction_restart))
@@ -710,15 +729,14 @@ static int bch2_check_dirent_inode_dirent(struct btree_trans *trans,
 					  bool in_fsck)
 {
 	struct bch_fs *c = trans->c;
-	struct printbuf buf = PRINTBUF;
+	CLASS(printbuf, buf)();
 	struct btree_iter bp_iter = {};
 	int ret = 0;
 
 	if (inode_points_to_dirent(target, d))
 		return 0;
 
-	if (!target->bi_dir &&
-	    !target->bi_dir_offset) {
+	if (!bch2_inode_has_backpointer(target)) {
 		fsck_err_on(S_ISDIR(target->bi_mode),
 			    trans, inode_dir_missing_backpointer,
 			    "directory with missing backpointer\n%s",
@@ -819,7 +837,6 @@ out:
 err:
 fsck_err:
 	bch2_trans_iter_exit(trans, &bp_iter);
-	printbuf_exit(&buf);
 	bch_err_fn(c, ret);
 	return ret;
 }
@@ -831,7 +848,7 @@ int __bch2_check_dirent_target(struct btree_trans *trans,
 			       bool in_fsck)
 {
 	struct bch_fs *c = trans->c;
-	struct printbuf buf = PRINTBUF;
+	CLASS(printbuf, buf)();
 	int ret = 0;
 
 	ret = bch2_check_dirent_inode_dirent(trans, d, target, in_fsck);
@@ -866,7 +883,6 @@ int __bch2_check_dirent_target(struct btree_trans *trans,
 	}
 err:
 fsck_err:
-	printbuf_exit(&buf);
 	bch_err_fn(c, ret);
 	return ret;
 }
@@ -924,7 +940,7 @@ int bch2_check_inode_has_case_insensitive(struct btree_trans *trans,
 					  snapshot_id_list *snapshot_overwrites,
 					  bool *do_update)
 {
-	struct printbuf buf = PRINTBUF;
+	CLASS(printbuf, buf)();
 	bool repairing_parents = false;
 	int ret = 0;
 
@@ -951,7 +967,7 @@ int bch2_check_inode_has_case_insensitive(struct btree_trans *trans,
 		ret = bch2_inum_snapshot_to_path(trans, inode->bi_inum, inode->bi_snapshot,
 						 snapshot_overwrites, &buf);
 		if (ret)
-			goto err;
+			return ret;
 
 		if (fsck_err(trans, inode_has_case_insensitive_not_set, "%s", buf.buf)) {
 			inode->bi_flags |= BCH_INODE_has_case_insensitive;
@@ -970,14 +986,14 @@ int bch2_check_inode_has_case_insensitive(struct btree_trans *trans,
 		if (dir.bi_parent_subvol) {
 			ret = bch2_subvolume_get_snapshot(trans, dir.bi_parent_subvol, &snapshot);
 			if (ret)
-				goto err;
+				return ret;
 
 			snapshot_overwrites = NULL;
 		}
 
 		ret = bch2_inode_find_by_inum_snapshot(trans, dir.bi_dir, snapshot, &dir, 0);
 		if (ret)
-			goto err;
+			return ret;
 
 		if (!(dir.bi_flags & BCH_INODE_has_case_insensitive)) {
 			prt_printf(&buf, "parent of casefolded dir with has_case_insensitive not set\n");
@@ -985,13 +1001,13 @@ int bch2_check_inode_has_case_insensitive(struct btree_trans *trans,
 			ret = bch2_inum_snapshot_to_path(trans, dir.bi_inum, dir.bi_snapshot,
 							 snapshot_overwrites, &buf);
 			if (ret)
-				goto err;
+				return ret;
 
 			if (fsck_err(trans, inode_parent_has_case_insensitive_not_set, "%s", buf.buf)) {
 				dir.bi_flags |= BCH_INODE_has_case_insensitive;
 				ret = __bch2_fsck_write_inode(trans, &dir);
 				if (ret)
-					goto err;
+					return ret;
 			}
 		}
 
@@ -1003,15 +1019,13 @@ int bch2_check_inode_has_case_insensitive(struct btree_trans *trans,
 			break;
 	}
 out:
-err:
 fsck_err:
-	printbuf_exit(&buf);
 	if (ret)
 		return ret;
 
 	if (repairing_parents) {
 		return bch2_trans_commit(trans, NULL, NULL, BCH_TRANS_COMMIT_no_enospc) ?:
-			-BCH_ERR_transaction_restart_nested;
+			bch_err_throw(trans->c, transaction_restart_nested);
 	}
 
 	return 0;

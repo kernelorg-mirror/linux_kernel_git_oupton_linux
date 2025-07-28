@@ -41,11 +41,9 @@
 #include <drm/drm_print.h>
 #include <drm/drm_probe_helper.h>
 #include <drm/intel/intel_lpe_audio.h>
-
 #include <media/cec-notifier.h>
 
 #include "g4x_hdmi.h"
-#include "i915_reg.h"
 #include "i915_utils.h"
 #include "intel_atomic.h"
 #include "intel_audio.h"
@@ -54,6 +52,7 @@
 #include "intel_ddi.h"
 #include "intel_de.h"
 #include "intel_display_driver.h"
+#include "intel_display_regs.h"
 #include "intel_display_types.h"
 #include "intel_dp.h"
 #include "intel_gmbus.h"
@@ -2053,6 +2052,10 @@ intel_hdmi_mode_valid(struct drm_connector *_connector,
 		sink_format = INTEL_OUTPUT_FORMAT_YCBCR420;
 	else
 		sink_format = INTEL_OUTPUT_FORMAT_RGB;
+
+	status = intel_pfit_mode_valid(display, mode, sink_format, 0);
+	if (status != MODE_OK)
+		return status;
 
 	status = intel_hdmi_mode_clock_valid(&connector->base, clock, has_hdmi_sink, sink_format);
 	if (status != MODE_OK) {

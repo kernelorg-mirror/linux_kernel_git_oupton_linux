@@ -22,11 +22,11 @@
 
 #define VIRTIO_AVQ_SGS_MAX	4
 
-static u64 vp_get_features(struct virtio_device *vdev)
+static void vp_get_features(struct virtio_device *vdev, u64 *features)
 {
 	struct virtio_pci_device *vp_dev = to_vp_device(vdev);
 
-	return vp_modern_get_features(&vp_dev->mdev);
+	vp_modern_get_extended_features(&vp_dev->mdev, features);
 }
 
 static int vp_avq_index(struct virtio_device *vdev, u16 *index, u16 *num)
@@ -437,7 +437,7 @@ static int vp_finalize_features(struct virtio_device *vdev)
 	if (vp_check_common_size(vdev))
 		return -EINVAL;
 
-	vp_modern_set_features(&vp_dev->mdev, vdev->features);
+	vp_modern_set_extended_features(&vp_dev->mdev, vdev->features_array);
 
 	return 0;
 }
@@ -1230,11 +1230,13 @@ static const struct virtio_config_ops virtio_pci_config_nodev_ops = {
 	.generation	= vp_generation,
 	.get_status	= vp_get_status,
 	.set_status	= vp_set_status,
+	.enable_disconnect = virtio_pci_enable_disconnect,
+	.disable_disconnect = virtio_pci_disable_disconnect,
 	.reset		= vp_reset,
 	.find_vqs	= vp_modern_find_vqs,
 	.del_vqs	= vp_del_vqs,
 	.synchronize_cbs = vp_synchronize_vectors,
-	.get_features	= vp_get_features,
+	.get_extended_features = vp_get_features,
 	.finalize_features = vp_finalize_features,
 	.bus_name	= vp_bus_name,
 	.set_vq_affinity = vp_set_vq_affinity,
@@ -1254,7 +1256,7 @@ static const struct virtio_config_ops virtio_pci_config_ops = {
 	.find_vqs	= vp_modern_find_vqs,
 	.del_vqs	= vp_del_vqs,
 	.synchronize_cbs = vp_synchronize_vectors,
-	.get_features	= vp_get_features,
+	.get_extended_features = vp_get_features,
 	.finalize_features = vp_finalize_features,
 	.bus_name	= vp_bus_name,
 	.set_vq_affinity = vp_set_vq_affinity,

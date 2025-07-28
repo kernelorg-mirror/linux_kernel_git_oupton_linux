@@ -150,12 +150,12 @@ enum fsck_err_opts {
 	  NULL,		"Number of consecutive write errors allowed before kicking out a device")\
 	x(metadata_replicas,		u8,				\
 	  OPT_FS|OPT_FORMAT|OPT_MOUNT|OPT_RUNTIME,			\
-	  OPT_UINT(1, BCH_REPLICAS_MAX),				\
+	  OPT_UINT(1, BCH_REPLICAS_MAX + 1),				\
 	  BCH_SB_META_REPLICAS_WANT,	1,				\
 	  "#",		"Number of metadata replicas")			\
 	x(data_replicas,		u8,				\
 	  OPT_FS|OPT_INODE|OPT_FORMAT|OPT_MOUNT|OPT_RUNTIME,		\
-	  OPT_UINT(1, BCH_REPLICAS_MAX),				\
+	  OPT_UINT(1, BCH_REPLICAS_MAX + 1),				\
 	  BCH_SB_DATA_REPLICAS_WANT,	1,				\
 	  "#",		"Number of data replicas")			\
 	x(metadata_replicas_required, u8,				\
@@ -165,7 +165,7 @@ enum fsck_err_opts {
 	  "#",		NULL)						\
 	x(data_replicas_required,	u8,				\
 	  OPT_FS|OPT_FORMAT|OPT_MOUNT,					\
-	  OPT_UINT(1, BCH_REPLICAS_MAX),				\
+	  OPT_UINT(1, BCH_REPLICAS_MAX + 1),				\
 	  BCH_SB_DATA_REPLICAS_REQ,	1,				\
 	  "#",		NULL)						\
 	x(encoded_extent_max,		u32,				\
@@ -234,6 +234,11 @@ enum fsck_err_opts {
 	  OPT_BOOL(),							\
 	  BCH_SB_CASEFOLD,		false,				\
 	  NULL,		"Dirent lookups are casefolded")		\
+	x(casefold_disabled,			u8,			\
+	  OPT_FS|OPT_MOUNT,						\
+	  OPT_BOOL(),							\
+	  BCH2_NO_SB_OPT,		false,				\
+	  NULL,		"Disable casefolding filesystem wide")		\
 	x(inodes_32bit,			u8,				\
 	  OPT_FS|OPT_INODE|OPT_FORMAT|OPT_MOUNT|OPT_RUNTIME,		\
 	  OPT_BOOL(),							\
@@ -379,6 +384,11 @@ enum fsck_err_opts {
 	  OPT_BOOL(),							\
 	  BCH2_NO_SB_OPT,		false,				\
 	  NULL,		"Exit recovery immediately prior to journal replay")\
+	x(journal_rewind,		u64,				\
+	  OPT_FS|OPT_MOUNT,						\
+	  OPT_UINT(0, U64_MAX),						\
+	  BCH2_NO_SB_OPT,		0,				\
+	  NULL,		"Rewind journal")				\
 	x(recovery_passes,		u64,				\
 	  OPT_FS|OPT_MOUNT,						\
 	  OPT_BITFIELD(bch2_recovery_passes),				\
@@ -519,7 +529,7 @@ enum fsck_err_opts {
 	  "size",	"Specifies the bucket size; must be greater than the btree node size")\
 	x(durability,			u8,				\
 	  OPT_DEVICE|OPT_RUNTIME|OPT_SB_FIELD_ONE_BIAS,			\
-	  OPT_UINT(0, BCH_REPLICAS_MAX),				\
+	  OPT_UINT(0, BCH_REPLICAS_MAX + 1),				\
 	  BCH_MEMBER_DURABILITY,	1,				\
 	  "n",		"Data written to this device will be considered\n"\
 			"to have already been replicated n times")	\
