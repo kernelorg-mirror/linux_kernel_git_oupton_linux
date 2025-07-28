@@ -115,6 +115,12 @@ struct dev_pm_domain_list {
  *				genpd provider specific way, likely through a
  *				parent device node. This flag makes genpd to
  *				skip its internal support for this.
+ * GENPD_FLAG_DEFER_OFF:	Defer powerdown if there are any consumer
+ *				device fwlinks indicating that some consumer
+ *				devices have not yet probed. This is useful
+ *				for power domains which are active at boot and
+ *				must not be shut down until all consumers
+ *				complete their probe sequence.
  */
 #define GENPD_FLAG_PM_CLK	 (1U << 0)
 #define GENPD_FLAG_IRQ_SAFE	 (1U << 1)
@@ -126,6 +132,7 @@ struct dev_pm_domain_list {
 #define GENPD_FLAG_OPP_TABLE_FW	 (1U << 7)
 #define GENPD_FLAG_DEV_NAME_FW	 (1U << 8)
 #define GENPD_FLAG_NO_SYNC_STATE (1U << 9)
+#define GENPD_FLAG_DEFER_OFF	 (1U << 10)
 
 enum gpd_status {
 	GENPD_STATE_ON = 0,	/* PM domain is on */
