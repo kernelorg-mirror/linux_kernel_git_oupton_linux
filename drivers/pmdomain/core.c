@@ -993,7 +993,7 @@ static int genpd_power_off(struct generic_pm_domain *genpd, bool one_dev_on,
 	if (!genpd_status_on(genpd) || genpd->prepared_count > 0 ||
 	    genpd_is_always_on(genpd) || genpd_is_rpm_always_on(genpd) ||
 	    genpd->stay_on || atomic_read(&genpd->sd_count) > 0)
-		return;
+		return 0;
 
 	/*
 	 * The children must be in their deepest (powered-off) states to allow
@@ -1004,7 +1004,7 @@ static int genpd_power_off(struct generic_pm_domain *genpd, bool one_dev_on,
 	list_for_each_entry(link, &genpd->parent_links, parent_node) {
 		struct generic_pm_domain *child = link->child;
 		if (child->state_idx < child->state_count - 1)
-			return;
+			return -EBUSY;
 	}
 
 	list_for_each_entry(pdd, &genpd->dev_list, list_node) {
@@ -1018,11 +1018,11 @@ static int genpd_power_off(struct generic_pm_domain *genpd, bool one_dev_on,
 
 		/* The device may need its PM domain to stay powered on. */
 		if (to_gpd_data(pdd)->rpm_always_on)
-			return;
+			return -EBUSY;
 	}
 
 	if (not_suspended > 1 || (not_suspended == 1 && !one_dev_on))
-		return;
+		return -EBUSY;
 
 	/*
 	 * Do not allow PM domain to be powered off if it is marked
@@ -1034,7 +1034,7 @@ static int genpd_power_off(struct generic_pm_domain *genpd, bool one_dev_on,
 
 	if (genpd->gov && genpd->gov->power_down_ok) {
 		if (!genpd->gov->power_down_ok(&genpd->domain))
-			return;
+			return -EAGAIN;
 	}
 
 	/* Default to shallowest state. */
@@ -1043,11 +1043,12 @@ static int genpd_power_off(struct generic_pm_domain *genpd, bool one_dev_on,
 
 	/* Don't power off, if a child domain is waiting to power on. */
 	if (atomic_read(&genpd->sd_count) > 0)
-		return;
+		return -EBUSY;
 
-	if (_genpd_power_off(genpd, true)) {
+	int ret = _genpd_power_off(genpd, true);
+	if (ret) {
 		genpd->states[genpd->state_idx].rejected++;
-		return;
+		return ret;
 	}
 
 	genpd->status = GENPD_STATE_OFF;
@@ -1060,6 +1061,8 @@ static int genpd_power_off(struct generic_pm_domain *genpd, bool one_dev_on,
 		genpd_power_off(link->parent, false, false, depth + 1);
 		genpd_unlock(link->parent);
 	}
+
+	return 0;
 }
 
 /**
