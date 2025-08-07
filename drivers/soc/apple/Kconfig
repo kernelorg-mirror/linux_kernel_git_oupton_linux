@@ -41,6 +41,16 @@ config APPLE_SART
 
 	  Say 'y' here if you have an Apple SoC.
 
+config APPLE_VIRT_TSO
+	tristate "Apple VM TSO driver"
+	depends on ARCH_APPLE && KVM
+	default ARCH_APPLE
+	help
+          Certain Apple CPU implementations have support for a TSO memory model,
+          similar in function to the x86 memory model.
+
+	  Say 'y' here if you have an Apple SoC.
+
 endmenu
 
 endif
