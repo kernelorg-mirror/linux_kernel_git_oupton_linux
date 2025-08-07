@@ -4,6 +4,7 @@
 
 #include <asm/xen/hypervisor.h>
 
+bool kvm_hypervisor_detected(void);
 void kvm_init_hyp_services(void);
 bool kvm_arm_hyp_service_available(u32 func_id);
 void kvm_arm_target_impl_cpu_init(void);

@@ -15,13 +15,20 @@
 
 static DECLARE_BITMAP(__kvm_arm_hyp_services, ARM_SMCCC_KVM_NUM_FUNCS) __ro_after_init = { };
 
-void __init kvm_init_hyp_services(void)
+bool kvm_hypervisor_detected(void)
 {
 	uuid_t kvm_uuid = ARM_SMCCC_VENDOR_HYP_UID_KVM;
+
+	return arm_smccc_hypervisor_has_uuid(&kvm_uuid);
+}
+EXPORT_SYMBOL_GPL(kvm_hypervisor_detected);
+
+void __init kvm_init_hyp_services(void)
+{
 	struct arm_smccc_res res;
 	u32 val[4];
 
-	if (!arm_smccc_hypervisor_has_uuid(&kvm_uuid))
+	if (!kvm_hypervisor_detected())
 		return;
 
 	memset(&res, 0, sizeof(res));
