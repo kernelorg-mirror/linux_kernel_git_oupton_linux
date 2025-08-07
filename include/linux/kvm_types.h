@@ -115,6 +115,19 @@ struct kvm_vcpu_stat_generic {
 	u64 blocking;
 };
 
+struct kvm_vcpu_notifier;
+
+struct kvm_vcpu_notifier_ops {
+	void	(*vcpu_load)(struct kvm_vcpu_notifier *n, int vcpu_id);
+	void	(*vcpu_put)(struct kvm_vcpu_notifier *n, int vcpu_id);
+	void	(*release)(struct kvm_vcpu_notifier *n);
+};
+
+struct kvm_vcpu_notifier {
+	struct hlist_node			node;
+	const struct kvm_vcpu_notifier_ops	*ops;
+};
+
 #define KVM_STATS_NAME_SIZE	48
 
 #endif /* __KVM_TYPES_H__ */

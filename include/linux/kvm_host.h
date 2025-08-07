@@ -862,6 +862,8 @@ struct kvm {
 	/* Protected by slots_locks (for writes) and RCU (for reads) */
 	struct xarray mem_attr_array;
 #endif
+	struct hlist_head	vcpu_notifiers;
+
 	char stats_id[KVM_STATS_NAME_SIZE];
 };
 
@@ -2601,5 +2603,14 @@ void kvm_disable_virtualization(void);
 static inline int kvm_enable_virtualization(void) { return 0; }
 static inline void kvm_disable_virtualization(void) { }
 #endif
+
+static inline void kvm_init_vcpu_notifier(struct kvm_vcpu_notifier *n,
+					  const struct kvm_vcpu_notifier_ops *ops)
+{
+	INIT_HLIST_NODE(&n->node);
+	n->ops = ops;
+}
+
+int kvm_register_vcpu_notifier(struct kvm_vcpu_notifier *n, int kvm_fd);
 
 #endif

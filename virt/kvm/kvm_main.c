@@ -158,6 +158,74 @@ __weak void kvm_arch_guest_memory_reclaimed(struct kvm *kvm)
 {
 }
 
+static DEFINE_STATIC_KEY_FALSE(vcpu_notifier_key);
+
+static void __fire_vcpu_load_notifiers(struct kvm_vcpu *vcpu)
+{
+	struct kvm_vcpu_notifier *n;
+
+	hlist_for_each_entry(n, &vcpu->kvm->vcpu_notifiers, node)
+		n->ops->vcpu_load(n, vcpu->vcpu_id);
+}
+
+static void __fire_vcpu_put_notifiers(struct kvm_vcpu *vcpu)
+{
+	struct kvm_vcpu_notifier *n;
+
+	hlist_for_each_entry(n, &vcpu->kvm->vcpu_notifiers, node)
+		n->ops->vcpu_put(n, vcpu->vcpu_id);
+}
+
+static void kvm_destroy_vcpu_notifiers(struct kvm *kvm)
+{
+	struct kvm_vcpu_notifier *n;
+	struct hlist_node *tmp;
+
+	hlist_for_each_entry_safe(n, tmp, &kvm->vcpu_notifiers, node) {
+		hlist_del(&n->node);
+		n->ops->release(n);
+		static_branch_dec(&vcpu_notifier_key);
+	}
+}
+
+int kvm_register_vcpu_notifier(struct kvm_vcpu_notifier *n, int kvm_fd)
+{
+	CLASS(fd, f)(kvm_fd);
+	struct kvm *kvm;
+
+	if (fd_empty(f))
+		return -EBADF;
+
+	if (!file_is_kvm(fd_file(f)))
+		return -EBADF;
+
+	kvm = fd_file(f)->private_data;
+	if (!kvm_get_kvm_safe(kvm))
+		return -ENOENT;
+
+	hlist_add_head(&n->node, &kvm->vcpu_notifiers);
+	static_branch_inc(&vcpu_notifier_key);
+	kvm_put_kvm(kvm);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(kvm_register_vcpu_notifier);
+
+static void __vcpu_load(struct kvm_vcpu *vcpu, int cpu)
+{
+	kvm_arch_vcpu_load(vcpu, cpu);
+
+	if (static_branch_unlikely(&vcpu_notifier_key))
+		__fire_vcpu_load_notifiers(vcpu);
+}
+
+static void __vcpu_put(struct kvm_vcpu *vcpu)
+{
+	if (static_branch_unlikely(&vcpu_notifier_key))
+		__fire_vcpu_put_notifiers(vcpu);
+
+	kvm_arch_vcpu_put(vcpu);
+}
+
 /*
  * Switches to specified vcpu, until a matching vcpu_put()
  */
@@ -167,7 +235,7 @@ void vcpu_load(struct kvm_vcpu *vcpu)
 
 	__this_cpu_write(kvm_running_vcpu, vcpu);
 	preempt_notifier_register(&vcpu->preempt_notifier);
-	kvm_arch_vcpu_load(vcpu, cpu);
+	__vcpu_load(vcpu, cpu);
 	put_cpu();
 }
 EXPORT_SYMBOL_GPL(vcpu_load);
@@ -175,7 +243,7 @@ EXPORT_SYMBOL_GPL(vcpu_load);
 void vcpu_put(struct kvm_vcpu *vcpu)
 {
 	preempt_disable();
-	kvm_arch_vcpu_put(vcpu);
+	__vcpu_put(vcpu);
 	preempt_notifier_unregister(&vcpu->preempt_notifier);
 	__this_cpu_write(kvm_running_vcpu, NULL);
 	preempt_enable();
@@ -1135,6 +1203,8 @@ static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
 
 	BUILD_BUG_ON(KVM_MEM_SLOTS_NUM > SHRT_MAX);
 
+	INIT_HLIST_HEAD(&kvm->vcpu_notifiers);
+
 	/*
 	 * Force subsequent debugfs file creations to fail if the VM directory
 	 * is not created (by kvm_create_vm_debugfs()).
@@ -1266,6 +1336,7 @@ static void kvm_destroy_vm(struct kvm *kvm)
 	int i;
 	struct mm_struct *mm = kvm->mm;
 
+	kvm_destroy_vcpu_notifiers(kvm);
 	kvm_destroy_pm_notifier(kvm);
 	kvm_uevent_notify_change(KVM_EVENT_DESTROY_VM, kvm);
 	kvm_destroy_vm_debugfs(kvm);
@@ -6338,7 +6409,7 @@ static void kvm_sched_in(struct preempt_notifier *pn, int cpu)
 	WRITE_ONCE(vcpu->ready, false);
 
 	__this_cpu_write(kvm_running_vcpu, vcpu);
-	kvm_arch_vcpu_load(vcpu, cpu);
+	__vcpu_load(vcpu, cpu);
 
 	WRITE_ONCE(vcpu->scheduled_out, false);
 }
@@ -6354,7 +6425,7 @@ static void kvm_sched_out(struct preempt_notifier *pn,
 		WRITE_ONCE(vcpu->preempted, true);
 		WRITE_ONCE(vcpu->ready, true);
 	}
-	kvm_arch_vcpu_put(vcpu);
+	__vcpu_put(vcpu);
 	__this_cpu_write(kvm_running_vcpu, NULL);
 }
 
