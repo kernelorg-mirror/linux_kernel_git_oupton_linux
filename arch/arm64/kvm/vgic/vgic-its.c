@@ -756,12 +756,8 @@ static void its_free_ite(struct kvm *kvm, struct its_ite *ite)
 
 	/* This put matches the get in vgic_add_lpi. */
 	if (irq) {
-		scoped_guard(raw_spinlock_irqsave, &irq->irq_lock) {
-			if (irq->hw)
-				its_unmap_vlpi(ite->irq->host_irq);
-
-			irq->hw = false;
-		}
+		scoped_guard(raw_spinlock_irqsave, &irq->irq_lock)
+			__vgic_unset_forwarding_locked(kvm, irq);
 
 		vgic_put_irq(kvm, ite->irq);
 	}

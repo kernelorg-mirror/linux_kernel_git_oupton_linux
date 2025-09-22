@@ -858,10 +858,20 @@ static struct vgic_irq *__vgic_host_irq_get_vlpi(struct kvm *kvm, int host_irq)
 	return NULL;
 }
 
+void __vgic_unset_forwarding_locked(struct kvm *kvm, struct vgic_irq *irq)
+{
+	lockdep_assert_held(&irq->irq_lock);
+
+	if (!irq->hw)
+		return;
+
+	vgic_v4_unset_forwarding(kvm, irq);
+	irq->hw = false;
+}
+
 void kvm_vgic_unset_forwarding(struct kvm *kvm, int host_irq)
 {
 	struct vgic_irq *irq;
-	unsigned long flags;
 
 	if (!vgic_supports_direct_msis(kvm))
 		return;
@@ -870,13 +880,10 @@ void kvm_vgic_unset_forwarding(struct kvm *kvm, int host_irq)
 	if (!irq)
 		return;
 
-	raw_spin_lock_irqsave(&irq->irq_lock, flags);
-	WARN_ON(irq->hw && irq->host_irq != host_irq);
-	if (irq->hw) {
-		vgic_v4_unset_forwarding(kvm, irq);
-		irq->hw = false;
+	scoped_guard(raw_spinlock_irqsave, &irq->irq_lock) {
+		WARN_ON(irq->hw && irq->host_irq != host_irq);
+		__vgic_unset_forwarding_locked(kvm, irq);
 	}
 
-	raw_spin_unlock_irqrestore(&irq->irq_lock, flags);
 	vgic_put_irq(kvm, irq);
 }

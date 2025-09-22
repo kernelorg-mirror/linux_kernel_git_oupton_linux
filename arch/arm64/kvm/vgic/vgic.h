@@ -399,6 +399,8 @@ static inline bool vgic_supports_direct_irqs(struct kvm *kvm)
 	return vgic_supports_direct_msis(kvm) || vgic_supports_direct_sgis(kvm);
 }
 
+void __vgic_unset_forwarding_locked(struct kvm *kvm, struct vgic_irq *irq);
+
 int vgic_v4_init(struct kvm *kvm);
 void vgic_v4_teardown(struct kvm *kvm);
 void vgic_v4_configure_vsgis(struct kvm *kvm);
