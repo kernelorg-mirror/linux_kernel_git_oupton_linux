@@ -780,6 +780,68 @@ static struct vgic_its *vgic_get_its(struct kvm *kvm,
 	return vgic_msi_to_its(kvm, &msi);
 }
 
+static int vgic_v3_set_forwarding(struct kvm *kvm, struct vgic_irq *irq)
+{
+	struct irq_data *d = irq_get_irq_data(irq->host_irq);
+	struct kvm_vcpu *vcpu = irq->target_vcpu;
+
+	if (!d)
+		return 0;
+
+	irqd_set_kvm_managed_affinity(d);
+	cpumask_copy(&irq->old_affinity, irq_data_get_affinity_mask(d));
+	kvm_make_request_and_kick(KVM_REQ_UPDATE_LPI_AFFINITY, vcpu);
+	return 0;
+}
+
+static void vgic_v3_unset_forwarding(struct kvm *kvm, struct vgic_irq *irq)
+{
+	if (!irqd_kvm_managed_affinity(irq_get_irq_data(irq->host_irq)))
+		return;
+
+	irqd_clr_kvm_managed_affinity(irq_get_irq_data(irq->host_irq));
+	irq_set_affinity(irq->host_irq, &irq->old_affinity);
+}
+
+static int vgic_v3_update_forwarding(struct vgic_irq *irq)
+{
+	if (!irqd_kvm_managed_affinity(irq_get_irq_data(irq->host_irq)))
+		return 0;
+
+	kvm_make_request_and_kick(KVM_REQ_UPDATE_LPI_AFFINITY, irq->target_vcpu);
+	return 0;
+}
+
+void kvm_vgic_vcpu_migrated(struct kvm_vcpu *vcpu)
+{
+	if (vcpu->kvm->arch.vgic.vgic_model != KVM_DEV_TYPE_ARM_VGIC_V3)
+		return;
+
+	if (!vgic_supports_direct_msis(vcpu->kvm))
+		kvm_make_request(KVM_REQ_UPDATE_LPI_AFFINITY, vcpu);
+}
+
+void vgic_v3_update_lpi_affinity(struct kvm_vcpu *vcpu)
+{
+	XA_STATE(xas, &vcpu->kvm->arch.vgic.lpi_xa, VGIC_MIN_LPI);
+	const struct cpumask *cpumask;
+	struct vgic_irq *irq;
+
+	guard(preempt)();
+	cpumask = cpumask_of(smp_processor_id());
+
+	guard(rcu)();
+	xas_for_each(&xas, irq, U32_MAX) {
+		if (!irq->hw || irq->target_vcpu != vcpu)
+			continue;
+
+		if (!irqd_kvm_managed_affinity(irq_get_irq_data(irq->host_irq)))
+			continue;
+
+		irq_set_affinity(irq->host_irq, cpumask);
+	}
+}
+
 int kvm_vgic_set_forwarding(struct kvm *kvm, int virq,
 			    struct kvm_kernel_irq_routing_entry *irq_entry)
 {
@@ -788,7 +850,7 @@ int kvm_vgic_set_forwarding(struct kvm *kvm, int virq,
 	unsigned long flags;
 	int ret = 0;
 
-	if (!vgic_supports_direct_msis(kvm))
+	if (kvm->arch.vgic.vgic_model != KVM_DEV_TYPE_ARM_VGIC_V3)
 		return 0;
 
 	/*
@@ -821,7 +883,11 @@ int kvm_vgic_set_forwarding(struct kvm *kvm, int virq,
 	irq->hw		= true;
 	irq->host_irq	= virq;
 
-	ret = vgic_v4_set_forwarding(kvm, irq);
+	if (vgic_supports_direct_msis(kvm))
+		ret = vgic_v4_set_forwarding(kvm, irq);
+	else
+		ret = vgic_v3_set_forwarding(kvm, irq);
+
 	if (ret) {
 		irq->hw = false;
 		goto out_unlock_irq;
@@ -865,7 +931,11 @@ void __vgic_unset_forwarding_locked(struct kvm *kvm, struct vgic_irq *irq)
 	if (!irq->hw)
 		return;
 
-	vgic_v4_unset_forwarding(kvm, irq);
+	if (vgic_supports_direct_msis(kvm))
+		vgic_v4_unset_forwarding(kvm, irq);
+	else
+		vgic_v3_unset_forwarding(kvm, irq);
+
 	irq->hw = false;
 }
 
@@ -873,7 +943,7 @@ void kvm_vgic_unset_forwarding(struct kvm *kvm, int host_irq)
 {
 	struct vgic_irq *irq;
 
-	if (!vgic_supports_direct_msis(kvm))
+	if (kvm->arch.vgic.vgic_model != KVM_DEV_TYPE_ARM_VGIC_V3)
 		return;
 
 	irq = __vgic_host_irq_get_vlpi(kvm, host_irq);
@@ -892,8 +962,11 @@ int __vgic_update_forwarding_locked(struct vgic_irq *irq)
 {
 	lockdep_assert_held(&irq->irq_lock);
 
-	if (!irq->hw)
+	if (!irq->hw || WARN_ON(!irq->target_vcpu))
 		return 0;
 
-	return vgic_v4_update_forwarding(irq);
+	if (vgic_supports_direct_msis(irq->target_vcpu->kvm))
+		return vgic_v4_update_forwarding(irq);
+
+	return vgic_v3_update_forwarding(irq);
 }

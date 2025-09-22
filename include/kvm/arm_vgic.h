@@ -159,6 +159,8 @@ struct vgic_irq {
 
 	void *owner;			/* Opaque pointer to reserve an interrupt
 					   for in-kernel devices. */
+
+	struct cpumask old_affinity;
 };
 
 static inline bool vgic_irq_needs_resampling(struct vgic_irq *irq)
@@ -452,5 +454,8 @@ bool vgic_state_is_nested(struct kvm_vcpu *vcpu);
 /* CPU HP callbacks */
 void kvm_vgic_cpu_up(void);
 void kvm_vgic_cpu_down(void);
+
+void kvm_vgic_vcpu_migrated(struct kvm_vcpu *vcpu);
+void vgic_v3_update_lpi_affinity(struct kvm_vcpu *vcpu);
 
 #endif /* __KVM_ARM_VGIC_H */

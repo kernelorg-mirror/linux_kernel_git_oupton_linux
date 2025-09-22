@@ -575,6 +575,7 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 	struct kvm_s2_mmu *mmu;
 	int *last_ran;
+	bool migrated;
 
 	if (is_protected_kvm_enabled())
 		goto nommu;
@@ -610,7 +611,11 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	}
 
 nommu:
+	migrated = vcpu->cpu != cpu;
 	vcpu->cpu = cpu;
+
+	if (migrated)
+		kvm_vgic_vcpu_migrated(vcpu);
 
 	/*
 	 * The timer must be loaded before the vgic to correctly set up physical
@@ -1058,6 +1063,9 @@ static int check_vcpu_requests(struct kvm_vcpu *vcpu)
 
 		if (kvm_dirty_ring_check_request(vcpu))
 			return 0;
+
+		if (kvm_check_request(KVM_REQ_UPDATE_LPI_AFFINITY, vcpu))
+			vgic_v3_update_lpi_affinity(vcpu);
 
 		check_nested_vcpu_requests(vcpu);
 	}
