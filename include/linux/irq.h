@@ -244,6 +244,7 @@ enum {
 	IRQD_AFFINITY_ON_ACTIVATE	= BIT(28),
 	IRQD_IRQ_ENABLED_ON_SUSPEND	= BIT(29),
 	IRQD_RESEND_WHEN_IN_PROGRESS    = BIT(30),
+	IRQD_KVM_MANAGED_AFFINITY	= BIT(31),
 };
 
 #define __irqd_to_state(d) ACCESS_PRIVATE((d)->common, state_use_accessors)
@@ -431,6 +432,21 @@ static inline void irqd_set_resend_when_in_progress(struct irq_data *d)
 static inline bool irqd_needs_resend_when_in_progress(struct irq_data *d)
 {
 	return __irqd_to_state(d) & IRQD_RESEND_WHEN_IN_PROGRESS;
+}
+
+static inline void irqd_set_kvm_managed_affinity(struct irq_data *d)
+{
+	__irqd_to_state(d) |= IRQD_KVM_MANAGED_AFFINITY;
+}
+
+static inline void irqd_clr_kvm_managed_affinity(struct irq_data *d)
+{
+	__irqd_to_state(d) &= ~IRQD_KVM_MANAGED_AFFINITY;
+}
+
+static inline bool irqd_kvm_managed_affinity(struct irq_data *d)
+{
+	return __irqd_to_state(d) & IRQD_KVM_MANAGED_AFFINITY;
 }
 
 #undef __irqd_to_state

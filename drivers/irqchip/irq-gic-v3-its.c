@@ -1773,7 +1773,7 @@ static int its_set_affinity(struct irq_data *d, const struct cpumask *mask_val,
 	int cpu, prev_cpu;
 
 	/* A forwarded interrupt should use irq_set_vcpu_affinity */
-	if (irqd_is_forwarded_to_vcpu(d))
+	if (irqd_is_forwarded_to_vcpu(d) || irqd_kvm_managed_affinity(d))
 		return -EINVAL;
 
 	prev_cpu = its_dev->event_map.col_map[id];
