@@ -765,3 +765,118 @@ void vgic_v3_put(struct kvm_vcpu *vcpu)
 	if (has_vhe())
 		__vgic_v3_deactivate_traps(cpu_if);
 }
+
+static struct vgic_its *vgic_get_its(struct kvm *kvm,
+				     struct kvm_kernel_irq_routing_entry *irq_entry)
+{
+	struct kvm_msi msi  = (struct kvm_msi) {
+		.address_lo	= irq_entry->msi.address_lo,
+		.address_hi	= irq_entry->msi.address_hi,
+		.data		= irq_entry->msi.data,
+		.flags		= irq_entry->msi.flags,
+		.devid		= irq_entry->msi.devid,
+	};
+
+	return vgic_msi_to_its(kvm, &msi);
+}
+
+int kvm_vgic_set_forwarding(struct kvm *kvm, int virq,
+			    struct kvm_kernel_irq_routing_entry *irq_entry)
+{
+	struct vgic_its *its;
+	struct vgic_irq *irq;
+	unsigned long flags;
+	int ret = 0;
+
+	if (!vgic_supports_direct_msis(kvm))
+		return 0;
+
+	/*
+	 * Get the ITS, and escape early on error (not a valid
+	 * doorbell for any of our vITSs).
+	 */
+	its = vgic_get_its(kvm, irq_entry);
+	if (IS_ERR(its))
+		return 0;
+
+	guard(mutex)(&its->its_lock);
+
+	/*
+	 * Perform the actual DevID/EventID -> LPI translation.
+	 *
+	 * Silently exit if translation fails as the guest (or userspace!) has
+	 * managed to do something stupid. Emulated LPI injection will still
+	 * work if the guest figures itself out at a later time.
+	 */
+	if (vgic_its_resolve_lpi(kvm, its, irq_entry->msi.devid,
+				 irq_entry->msi.data, &irq))
+		return 0;
+
+	raw_spin_lock_irqsave(&irq->irq_lock, flags);
+
+	/* Silently exit if the vLPI is already mapped */
+	if (irq->hw)
+		goto out_unlock_irq;
+
+	irq->hw		= true;
+	irq->host_irq	= virq;
+
+	ret = vgic_v4_set_forwarding(kvm, irq);
+	if (ret) {
+		irq->hw = false;
+		goto out_unlock_irq;
+	}
+
+	/*
+	 * Use vgic_queue_irq_unlock() to communicate any state changes to the
+	 * IRQ.
+	 */
+	vgic_queue_irq_unlock(kvm, irq, flags);
+	return ret;
+
+out_unlock_irq:
+	raw_spin_unlock_irqrestore(&irq->irq_lock, flags);
+	return ret;
+}
+
+static struct vgic_irq *__vgic_host_irq_get_vlpi(struct kvm *kvm, int host_irq)
+{
+	struct vgic_irq *irq;
+	unsigned long idx;
+
+	guard(rcu)();
+	xa_for_each(&kvm->arch.vgic.lpi_xa, idx, irq) {
+		if (!irq->hw || irq->host_irq != host_irq)
+			continue;
+
+		if (!vgic_try_get_irq_kref(irq))
+			return NULL;
+
+		return irq;
+	}
+
+	return NULL;
+}
+
+void kvm_vgic_unset_forwarding(struct kvm *kvm, int host_irq)
+{
+	struct vgic_irq *irq;
+	unsigned long flags;
+
+	if (!vgic_supports_direct_msis(kvm))
+		return;
+
+	irq = __vgic_host_irq_get_vlpi(kvm, host_irq);
+	if (!irq)
+		return;
+
+	raw_spin_lock_irqsave(&irq->irq_lock, flags);
+	WARN_ON(irq->hw && irq->host_irq != host_irq);
+	if (irq->hw) {
+		vgic_v4_unset_forwarding(kvm, irq);
+		irq->hw = false;
+	}
+
+	raw_spin_unlock_irqrestore(&irq->irq_lock, flags);
+	vgic_put_irq(kvm, irq);
+}
