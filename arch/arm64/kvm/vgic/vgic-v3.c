@@ -887,3 +887,13 @@ void kvm_vgic_unset_forwarding(struct kvm *kvm, int host_irq)
 
 	vgic_put_irq(kvm, irq);
 }
+
+int __vgic_update_forwarding_locked(struct vgic_irq *irq)
+{
+	lockdep_assert_held(&irq->irq_lock);
+
+	if (!irq->hw)
+		return 0;
+
+	return vgic_v4_update_forwarding(irq);
+}

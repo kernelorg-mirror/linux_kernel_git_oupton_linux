@@ -315,25 +315,9 @@ static int update_lpi_config(struct kvm *kvm, struct vgic_irq *irq,
 
 static int update_affinity(struct vgic_irq *irq, struct kvm_vcpu *vcpu)
 {
-	struct its_vlpi_map map;
-	int ret;
-
 	guard(raw_spinlock_irqsave)(&irq->irq_lock);
 	irq->target_vcpu = vcpu;
-
-	if (!irq->hw)
-		return 0;
-
-	ret = its_get_vlpi(irq->host_irq, &map);
-	if (ret)
-		return ret;
-
-	if (map.vpe)
-		atomic_dec(&map.vpe->vlpi_count);
-
-	map.vpe = &vcpu->arch.vgic_cpu.vgic_v3.its_vpe;
-	atomic_inc(&map.vpe->vlpi_count);
-	return its_map_vlpi(irq->host_irq, &map);
+	return __vgic_update_forwarding_locked(irq);
 }
 
 static struct kvm_vcpu *collection_to_vcpu(struct kvm *kvm,

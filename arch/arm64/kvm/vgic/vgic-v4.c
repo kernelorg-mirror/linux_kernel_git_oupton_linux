@@ -453,3 +453,20 @@ void vgic_v4_unset_forwarding(struct kvm *kvm, struct vgic_irq *irq)
 {
 	its_unmap_vlpi(irq->host_irq);
 }
+
+int vgic_v4_update_forwarding(struct vgic_irq *irq)
+{
+	struct its_vlpi_map map;
+	int ret;
+
+	ret = its_get_vlpi(irq->host_irq, &map);
+	if (ret)
+		return ret;
+
+	if (map.vpe)
+		atomic_dec(&map.vpe->vlpi_count);
+
+	map.vpe = &irq->target_vcpu->arch.vgic_cpu.vgic_v3.its_vpe;
+	atomic_inc(&map.vpe->vlpi_count);
+	return its_map_vlpi(irq->host_irq, &map);
+}

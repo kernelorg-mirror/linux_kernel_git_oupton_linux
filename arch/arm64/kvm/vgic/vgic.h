@@ -400,6 +400,7 @@ static inline bool vgic_supports_direct_irqs(struct kvm *kvm)
 }
 
 void __vgic_unset_forwarding_locked(struct kvm *kvm, struct vgic_irq *irq);
+int __vgic_update_forwarding_locked(struct vgic_irq *irq);
 
 int vgic_v4_init(struct kvm *kvm);
 void vgic_v4_teardown(struct kvm *kvm);
@@ -408,6 +409,7 @@ void vgic_v4_get_vlpi_state(struct vgic_irq *irq, bool *val);
 int vgic_v4_request_vpe_irq(struct kvm_vcpu *vcpu, int irq);
 int vgic_v4_set_forwarding(struct kvm *kvm, struct vgic_irq *irq);
 void vgic_v4_unset_forwarding(struct kvm *kvm, struct vgic_irq *irq);
+int vgic_v4_update_forwarding(struct vgic_irq *irq);
 
 void vcpu_set_ich_hcr(struct kvm_vcpu *vcpu);
 
