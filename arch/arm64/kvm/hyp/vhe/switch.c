@@ -258,6 +258,36 @@ static u64 compute_emulated_cntx_ctl_el0(struct kvm_vcpu *vcpu,
 	return ctl;
 }
 
+static u64 compute_direct_cntx_ctl_el0(struct kvm_vcpu *vcpu, enum vcpu_sysreg reg)
+{
+	unsigned long ctl;
+	u64 cval, cnt;
+	bool stat;
+
+	switch (reg) {
+	case CNTP_CTL_EL0:
+		cval	= read_sysreg_el0(SYS_CNTP_CVAL);
+		ctl	= read_sysreg_el0(SYS_CNTP_CTL);
+		cnt	= compute_counter_value(vcpu_hptimer(vcpu));
+
+		if (!has_cntpoff())
+			cval -= timer_get_offset(vcpu_hptimer(vcpu));
+		break;
+	case CNTV_CTL_EL0:
+		cval	= read_sysreg_el0(SYS_CNTV_CVAL);
+		ctl	= read_sysreg_el0(SYS_CNTV_CTL);
+		cnt	= compute_counter_value(vcpu_hvtimer(vcpu));
+		break;
+	default:
+		BUG();
+	}
+
+	stat = cval <= cnt;
+	__assign_bit(__ffs(ARCH_TIMER_CTRL_IT_STAT), &ctl, stat);
+
+	return ctl;
+}
+
 static bool kvm_hyp_handle_timer(struct kvm_vcpu *vcpu, u64 *exit_code)
 {
 	u64 esr, val;
@@ -281,7 +311,7 @@ static bool kvm_hyp_handle_timer(struct kvm_vcpu *vcpu, u64 *exit_code)
 		break;
 	case SYS_CNTP_CTL_EL0:
 		if (vcpu_el2_e2h_is_set(vcpu))
-			val = read_sysreg_el0(SYS_CNTP_CTL);
+			val = compute_direct_cntx_ctl_el0(vcpu, CNTP_CTL_EL0);
 		else
 			val = compute_emulated_cntx_ctl_el0(vcpu, CNTP_CTL_EL0);
 		break;
@@ -307,7 +337,7 @@ static bool kvm_hyp_handle_timer(struct kvm_vcpu *vcpu, u64 *exit_code)
 		break;
 	case SYS_CNTV_CTL_EL0:
 		if (vcpu_el2_e2h_is_set(vcpu))
-			val = read_sysreg_el0(SYS_CNTV_CTL);
+			val = compute_direct_cntx_ctl_el0(vcpu, CNTV_CTL_EL0);
 		else
 			val = compute_emulated_cntx_ctl_el0(vcpu, CNTV_CTL_EL0);
 		break;
