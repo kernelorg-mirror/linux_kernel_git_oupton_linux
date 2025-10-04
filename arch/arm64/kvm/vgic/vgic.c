@@ -298,26 +298,6 @@ static void vgic_sort_ap_list(struct kvm_vcpu *vcpu)
 }
 
 /*
- * Only valid injection if changing level for level-triggered IRQs or for a
- * rising edge, and in-kernel connected IRQ lines can only be controlled by
- * their owner.
- */
-static bool vgic_validate_injection(struct vgic_irq *irq, bool level, void *owner)
-{
-	if (irq->owner != owner)
-		return false;
-
-	switch (irq->config) {
-	case VGIC_CONFIG_LEVEL:
-		return irq->line_level != level;
-	case VGIC_CONFIG_EDGE:
-		return level;
-	}
-
-	return false;
-}
-
-/*
  * Check whether an IRQ needs to (and can) be queued to a VCPU's ap list.
  * Do the queuing if necessary, taking the right locks in the right order.
  * Returns true when the IRQ was queued, false otherwise.
@@ -412,6 +392,27 @@ retry:
 	return true;
 }
 
+void vgic_inject_irq_unlock(struct kvm *kvm, struct vgic_irq *irq, bool level,
+			    unsigned long flags) __releases(&irq->irq_lock)
+{
+	bool queue;
+
+	lockdep_assert_held(&irq->irq_lock);
+
+	if (irq->config == VGIC_CONFIG_LEVEL) {
+		queue = irq->line_level != level;
+		irq->line_level = level;
+	} else if (level) {
+		queue = true;
+		irq->pending_latch = level;
+	}
+
+	if (queue)
+		vgic_queue_irq_unlock(kvm, irq, flags);
+	else
+		raw_spin_unlock_irqrestore(&irq->irq_lock, flags);
+}
+
 /**
  * kvm_vgic_inject_irq - Inject an IRQ from a device to the vgic
  * @kvm:     The VM structure pointer
@@ -454,19 +455,14 @@ int kvm_vgic_inject_irq(struct kvm *kvm, struct kvm_vcpu *vcpu,
 
 	raw_spin_lock_irqsave(&irq->irq_lock, flags);
 
-	if (!vgic_validate_injection(irq, level, owner)) {
+	if (owner != irq->owner) {
 		/* Nothing to see here, move along... */
 		raw_spin_unlock_irqrestore(&irq->irq_lock, flags);
 		vgic_put_irq(kvm, irq);
 		return 0;
 	}
 
-	if (irq->config == VGIC_CONFIG_LEVEL)
-		irq->line_level = level;
-	else
-		irq->pending_latch = true;
-
-	vgic_queue_irq_unlock(kvm, irq, flags);
+	vgic_inject_irq_unlock(kvm, irq, level, flags);
 	vgic_put_irq(kvm, irq);
 
 	return 0;
