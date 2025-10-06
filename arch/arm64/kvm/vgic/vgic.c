@@ -403,7 +403,7 @@ void vgic_inject_irq_unlock(struct kvm *kvm, struct vgic_irq *irq, bool level,
 		queue = irq->line_level != level;
 		irq->line_level = level;
 	} else if (level) {
-		queue = true;
+		queue = !irq->pending_latch;
 		irq->pending_latch = level;
 	}
 
