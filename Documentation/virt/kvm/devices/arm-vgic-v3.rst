@@ -307,6 +307,10 @@ Groups:
       save all LPI pending bits into guest RAM pending tables.
 
       The first kB of the pending table is not altered by this operation.
+    KVM_DEV_ARM_VGIC_CTRL_VLPI_STATE
+      configure KVM to treat directly-injected LPIs (vLPIs) as always
+      pending for the purposes of the KVM_DEV_ARM_VGIC_SAVE_PENDING_TABLES
+      attribute.
 
   Errors:
 

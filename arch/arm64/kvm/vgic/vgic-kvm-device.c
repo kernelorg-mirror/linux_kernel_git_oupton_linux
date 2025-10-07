@@ -280,6 +280,17 @@ static int vgic_set_common_attr(struct kvm_device *dev,
 			kvm_unlock_all_vcpus(dev->kvm);
 			mutex_unlock(&dev->kvm->lock);
 			return r;
+		case KVM_DEV_ARM_VGIC_CTRL_VLPI_STATE: {
+			guard(mutex)(&dev->kvm->arch.config_lock);
+
+			if (!vgic_initialized(dev->kvm))
+				return -ENXIO;
+			if (kvm_vm_has_ran_once(dev->kvm))
+				return -EBUSY;
+
+			dev->kvm->arch.vgic.vlpi_always_pending = true;
+			return 0;
+		}
 		}
 		break;
 	}
@@ -701,6 +712,8 @@ static int vgic_v3_has_attr(struct kvm_device *dev,
 		case KVM_DEV_ARM_VGIC_CTRL_INIT:
 			return 0;
 		case KVM_DEV_ARM_VGIC_SAVE_PENDING_TABLES:
+			return 0;
+		case KVM_DEV_ARM_VGIC_CTRL_VLPI_STATE:
 			return 0;
 		}
 	}

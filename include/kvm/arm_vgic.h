@@ -281,6 +281,9 @@ struct vgic_dist {
 	bool			has_its;
 	bool			table_write_in_progress;
 
+	/* Directly-injected LPIs are always considered pending when saving state */
+	bool			vlpi_always_pending;
+
 	/*
 	 * Contains the attributes and gpa of the LPI configuration table.
 	 * Since we report GICR_TYPER.CommonLPIAff as 0b00, we can share

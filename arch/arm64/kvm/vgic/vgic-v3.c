@@ -382,6 +382,14 @@ static void map_all_vpes(struct kvm *kvm)
 						dist->its_vm.vpes[i]->irq));
 }
 
+static bool vgic_can_save_vlpi_pending_state(struct kvm *kvm)
+{
+	if (!kvm_vgic_global_state.has_gicv4_1)
+		return false;
+
+	return !kvm->arch.vgic.vlpi_always_pending;
+}
+
 /*
  * vgic_v3_save_pending_tables - Save the pending tables into guest RAM
  * kvm lock and all vcpu lock must be held
@@ -391,7 +399,6 @@ int vgic_v3_save_pending_tables(struct kvm *kvm)
 	struct vgic_dist *dist = &kvm->arch.vgic;
 	struct vgic_irq *irq;
 	gpa_t last_ptr = ~(gpa_t)0;
-	bool vlpi_avail = false;
 	unsigned long index;
 	int ret = 0;
 	u8 val;
@@ -404,10 +411,8 @@ int vgic_v3_save_pending_tables(struct kvm *kvm)
 	 * The above vgic initialized check also ensures that the allocation
 	 * and enabling of the doorbells have already been done.
 	 */
-	if (kvm_vgic_global_state.has_gicv4_1) {
+	if (vgic_can_save_vlpi_pending_state(kvm))
 		unmap_all_vpes(kvm);
-		vlpi_avail = true;
-	}
 
 	xa_for_each(&dist->lpi_xa, index, irq) {
 		int byte_offset, bit_nr;
@@ -435,10 +440,12 @@ int vgic_v3_save_pending_tables(struct kvm *kvm)
 
 		stored = val & (1U << bit_nr);
 
-		is_pending = irq->pending_latch;
-
-		if (irq->hw && vlpi_avail)
+		if (irq->hw && vgic_can_save_vlpi_pending_state(kvm))
 			vgic_v4_get_vlpi_state(irq, &is_pending);
+		else if (irq->hw && dist->vlpi_always_pending)
+			is_pending = true;
+		else
+			is_pending = irq->pending_latch;
 
 		if (stored == is_pending)
 			continue;
@@ -454,7 +461,7 @@ int vgic_v3_save_pending_tables(struct kvm *kvm)
 	}
 
 out:
-	if (vlpi_avail)
+	if (vgic_can_save_vlpi_pending_state(kvm))
 		map_all_vpes(kvm);
 
 	return ret;
