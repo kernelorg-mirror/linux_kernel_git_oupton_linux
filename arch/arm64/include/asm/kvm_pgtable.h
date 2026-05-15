@@ -94,6 +94,7 @@ typedef u64 kvm_pte_t;
 #define KVM_PTE_LEAF_ATTR_HI_S1_PXN	BIT(53)
 
 #define KVM_PTE_LEAF_ATTR_HI_S2_XN	GENMASK(54, 53)
+#define KVM_PTE_LEAF_ATTR_HI_S2_DBM	BIT(51)
 
 #define KVM_PTE_LEAF_ATTR_HI_S1_GP	BIT(50)
 

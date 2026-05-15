@@ -131,6 +131,7 @@ struct s2_walk_info {
 	unsigned int	t0sz;
 	bool		be;
 	bool		ha;
+	bool		hd;
 };
 
 struct s2_walk_step {
@@ -226,8 +227,21 @@ static int read_guest_s2_desc(struct kvm_vcpu *vcpu, struct s2_walk_step *ws,
 	return 0;
 }
 
+static bool should_set_dirty_state(struct s2_walk_info *wi, struct s2_walk_step *ws,
+				   struct kvm_walk_access *access)
+{
+	if (ws->level != 3 && FIELD_GET(KVM_PTE_TYPE, ws->desc) == KVM_PTE_TYPE_TABLE)
+		return false;
+
+	/* R_RKMHW */
+	if (access->type == WALK_ACCESS_CMO || access->type == WALK_ACCESS_AT)
+		return false;
+
+	return access->write && wi->hd && (ws->desc & KVM_PTE_LEAF_ATTR_HI_S2_DBM);
+}
+
 static int handle_desc_update(struct kvm_vcpu *vcpu, struct s2_walk_info *wi,
-			      struct s2_walk_step *ws)
+			      struct s2_walk_step *ws, struct kvm_walk_access *access)
 {
 	u64 old, new;
 
@@ -235,6 +249,9 @@ static int handle_desc_update(struct kvm_vcpu *vcpu, struct s2_walk_info *wi,
 
 	if (wi->ha)
 		new |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
+
+	if (should_set_dirty_state(wi, ws, access))
+		new |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
 
 	if (old == new)
 		return 0;
@@ -406,7 +423,7 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, struct kvm_walk_access *acc
 
 	compute_s2_permissions(vcpu, wi, out);
 
-	ret = handle_desc_update(vcpu, wi, &ws);
+	ret = handle_desc_update(vcpu, wi, &ws, access);
 	if (ret)
 		return ret;
 
@@ -442,6 +459,7 @@ static void vtcr_to_walk_info(u64 vtcr, struct s2_walk_info *wi)
 			      ps_to_output_size(FIELD_GET(VTCR_EL2_PS_MASK, vtcr), false));
 
 	wi->ha = vtcr & VTCR_EL2_HA;
+	wi->hd = vtcr & VTCR_EL2_HD;
 }
 
 int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, struct kvm_walk_access *access,
