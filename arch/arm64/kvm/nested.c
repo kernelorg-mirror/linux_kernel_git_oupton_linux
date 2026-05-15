@@ -132,6 +132,7 @@ struct s2_walk_info {
 	bool		be;
 	bool		ha;
 	bool		hd;
+	bool		haft;
 };
 
 struct s2_walk_step {
@@ -227,6 +228,15 @@ static int read_guest_s2_desc(struct kvm_vcpu *vcpu, struct s2_walk_step *ws,
 	return 0;
 }
 
+static bool should_set_access_flag(struct s2_walk_info *wi, struct s2_walk_step *ws)
+{
+	if (ws->level == 3 || FIELD_GET(KVM_PTE_TYPE, ws->desc) == KVM_PTE_TYPE_BLOCK)
+		return wi->ha;
+
+	/* R_SNVTX */
+	return wi->ha && wi->haft;
+}
+
 static bool should_set_dirty_state(struct s2_walk_info *wi, struct s2_walk_step *ws,
 				   struct kvm_walk_access *access)
 {
@@ -247,7 +257,7 @@ static int handle_desc_update(struct kvm_vcpu *vcpu, struct s2_walk_info *wi,
 
 	old = new = ws->desc;
 
-	if (wi->ha)
+	if (should_set_access_flag(wi, ws))
 		new |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
 
 	if (should_set_dirty_state(wi, ws, access))
@@ -394,6 +404,10 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, struct kvm_walk_access *acc
 			return 1;
 		}
 
+		ret = handle_desc_update(vcpu, wi, &ws, access);
+		if (ret)
+			return ret;
+
 		base_addr = ws.desc & GENMASK_ULL(47, wi->pgshift);
 
 		ws.level += 1;
@@ -460,6 +474,7 @@ static void vtcr_to_walk_info(u64 vtcr, struct s2_walk_info *wi)
 
 	wi->ha = vtcr & VTCR_EL2_HA;
 	wi->hd = vtcr & VTCR_EL2_HD;
+	wi->haft = vtcr & VTCR_EL2_HAFT;
 }
 
 int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, struct kvm_walk_access *access,
