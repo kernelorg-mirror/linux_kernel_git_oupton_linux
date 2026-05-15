@@ -422,7 +422,12 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		ipa = baddr | index;
 
 		if (wi->s2) {
-			ret = kvm_walk_nested_s2(vcpu, ipa, &s2_trans);
+			struct kvm_walk_access s2_access = {
+				.type	= WALK_ACCESS_S1PTW,
+				.ia	= ipa,
+			};
+
+			ret = kvm_walk_nested_s2(vcpu, &s2_access, &s2_trans);
 			if (ret) {
 				fail_s1_walk(wr,
 					     (s2_trans.esr & ~ESR_ELx_FSC_LEVEL) | level,
@@ -1525,8 +1530,9 @@ int __kvm_at_s1e2(struct kvm_vcpu *vcpu, u32 op, u64 vaddr)
 
 int __kvm_at_s12(struct kvm_vcpu *vcpu, u32 op, u64 vaddr)
 {
+	struct kvm_walk_access access = {};
 	struct kvm_s2_trans out = {};
-	u64 ipa, par;
+	u64 par;
 	bool write;
 	int ret;
 
@@ -1567,9 +1573,11 @@ int __kvm_at_s12(struct kvm_vcpu *vcpu, u32 op, u64 vaddr)
 		return 0;
 
 	/* Do the stage-2 translation */
-	ipa = (par & GENMASK_ULL(47, 12)) | (vaddr & GENMASK_ULL(11, 0));
+	access.type = WALK_ACCESS_AT;
+	access.ia = (par & GENMASK_ULL(47, 12)) | (vaddr & GENMASK_ULL(11, 0));
 	out.esr = 0;
-	ret = kvm_walk_nested_s2(vcpu, ipa, &out);
+
+	ret = kvm_walk_nested_s2(vcpu, &access, &out);
 	if (ret < 0)
 		return ret;
 

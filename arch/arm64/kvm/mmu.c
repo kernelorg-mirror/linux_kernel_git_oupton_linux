@@ -2273,9 +2273,23 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
 	 */
 	if (kvm_is_nested_s2_mmu(vcpu->kvm,vcpu->arch.hw_mmu) &&
 	    vcpu->arch.hw_mmu->nested_stage2_enabled) {
+		struct kvm_walk_access access = {
+			.ia	= fault_ipa,
+		};
 		u32 esr;
 
-		ret = kvm_walk_nested_s2(vcpu, fault_ipa, &nested_trans);
+		if (kvm_vcpu_abt_iss1tw(vcpu))
+			access.type = WALK_ACCESS_S1PTW;
+		else if (is_iabt)
+			access.type = WALK_ACCESS_IFETCH;
+		else if (kvm_vcpu_dabt_is_cm(vcpu))
+			access.type = WALK_ACCESS_CMO;
+		else
+			access.type = WALK_ACCESS_LDST;
+
+		access.write = kvm_is_write_fault(vcpu);
+
+		ret = kvm_walk_nested_s2(vcpu, &access, &nested_trans);
 		if (ret == -EAGAIN) {
 			ret = 1;
 			goto out_unlock;

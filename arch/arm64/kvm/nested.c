@@ -259,7 +259,7 @@ static int handle_desc_update(struct kvm_vcpu *vcpu, struct s2_walk_info *wi,
  *
  * Must be called with the kvm->srcu read lock held
  */
-static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
+static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, struct kvm_walk_access *access,
 			      struct s2_walk_info *wi, struct kvm_s2_trans *out)
 {
 	int first_block_level, stride, input_size, base_lower_bound;
@@ -308,7 +308,7 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 		phys_addr_t index;
 
 		addr_bottom = (3 - ws.level) * stride + wi->pgshift;
-		index = (ipa & GENMASK_ULL(addr_top, addr_bottom))
+		index = (access->ia & GENMASK_ULL(addr_top, addr_bottom))
 			>> (addr_bottom - 3);
 
 		ws.desc_pa = base_addr | index;
@@ -376,7 +376,7 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 
 	/* Calculate and return the result */
 	out->output = (ws.desc & GENMASK_ULL(47, addr_bottom)) |
-		      (ipa & GENMASK_ULL(addr_bottom - 1, 0));
+		      (access->ia & GENMASK_ULL(addr_bottom - 1, 0));
 	out->block_size = 1UL << ((3 - ws.level) * stride + wi->pgshift);
 	out->readable = ws.desc & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R;
 	out->writable = ws.desc & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
@@ -407,7 +407,7 @@ static void vtcr_to_walk_info(u64 vtcr, struct s2_walk_info *wi)
 	wi->ha = vtcr & VTCR_EL2_HA;
 }
 
-int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, phys_addr_t gipa,
+int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, struct kvm_walk_access *access,
 		       struct kvm_s2_trans *result)
 {
 	u64 vtcr = vcpu_read_sys_reg(vcpu, VTCR_EL2);
@@ -425,7 +425,7 @@ int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, phys_addr_t gipa,
 
 	wi.be = vcpu_read_sys_reg(vcpu, SCTLR_EL2) & SCTLR_ELx_EE;
 
-	ret = walk_nested_s2_pgd(vcpu, gipa, &wi, result);
+	ret = walk_nested_s2_pgd(vcpu, access, &wi, result);
 	if (ret)
 		result->esr |= (kvm_vcpu_get_esr(vcpu) & ~ESR_ELx_FSC);
 

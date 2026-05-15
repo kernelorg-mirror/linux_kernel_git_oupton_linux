@@ -158,7 +158,20 @@ static inline bool kvm_s2_trans_exec_el1(struct kvm *kvm, struct kvm_s2_trans *t
 	}
 }
 
-extern int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, phys_addr_t gipa,
+struct kvm_walk_access {
+	enum {
+		WALK_ACCESS_IFETCH,
+		WALK_ACCESS_LDST,
+		WALK_ACCESS_CMO,
+		WALK_ACCESS_AT,
+		WALK_ACCESS_S1PTW,
+	} type;
+
+	u64	ia;
+	bool	write;
+};
+
+extern int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, struct kvm_walk_access *access,
 			      struct kvm_s2_trans *result);
 extern int kvm_s2_handle_perm_fault(struct kvm_vcpu *vcpu,
 				    struct kvm_s2_trans *trans);
