@@ -280,7 +280,7 @@ static void compute_s2_permissions(struct kvm_vcpu *vcpu, struct s2_walk_info *w
  *
  * Must be called with the kvm->srcu read lock held
  */
-static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
+static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, struct kvm_walk_access *access,
 			      struct s2_walk_info *wi, struct kvm_s2_trans *out)
 {
 	int first_block_level, stride, input_size, base_lower_bound;
@@ -330,7 +330,7 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 		phys_addr_t index;
 
 		addr_bottom = (3 - ws.level) * stride + wi->pgshift;
-		index = (ipa & GENMASK_ULL(addr_top, addr_bottom))
+		index = (access->ia & GENMASK_ULL(addr_top, addr_bottom))
 			>> (addr_bottom - 3);
 
 		ws.desc_pa = base_addr | index;
@@ -412,7 +412,7 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 
 	/* Calculate and return the result */
 	out->output = (ws.desc & GENMASK_ULL(47, addr_bottom)) |
-		      (ipa & GENMASK_ULL(addr_bottom - 1, 0));
+		      (access->ia & GENMASK_ULL(addr_bottom - 1, 0));
 	out->block_size = 1UL << ((3 - ws.level) * stride + wi->pgshift);
 	compute_s2_permissions(vcpu, wi, &ws, out);
 	out->level = ws.level;
@@ -515,7 +515,7 @@ static void setup_s2_walk(struct kvm_vcpu *vcpu, struct s2_walk_info *wi)
 	wi->be = vcpu_read_sys_reg(vcpu, SCTLR_EL2) & SCTLR_ELx_EE;
 }
 
-int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, phys_addr_t gipa,
+int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, struct kvm_walk_access *access,
 		       struct kvm_s2_trans *result)
 {
 	struct s2_walk_info wi;
@@ -528,7 +528,7 @@ int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, phys_addr_t gipa,
 
 	setup_s2_walk(vcpu, &wi);
 
-	ret = walk_nested_s2_pgd(vcpu, gipa, &wi, result);
+	ret = walk_nested_s2_pgd(vcpu, access, &wi, result);
 	if (ret)
 		result->esr |= (kvm_vcpu_get_esr(vcpu) & ~ESR_ELx_FSC);
 
