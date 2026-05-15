@@ -133,6 +133,12 @@ struct s2_walk_info {
 	bool		ha;
 };
 
+struct s2_walk_step {
+	u64		desc_pa;
+	u64		desc;
+	int		level;
+};
+
 static u32 compute_fsc(int level, u32 fsc)
 {
 	return fsc | (level & 0x3);
@@ -198,13 +204,13 @@ static int check_output_size(struct s2_walk_info *wi, phys_addr_t output)
 	return 0;
 }
 
-static int read_guest_s2_desc(struct kvm_vcpu *vcpu, phys_addr_t pa, u64 *desc,
+static int read_guest_s2_desc(struct kvm_vcpu *vcpu, struct s2_walk_step *ws,
 			      struct s2_walk_info *wi)
 {
 	u64 val;
 	int r;
 
-	r = kvm_read_guest(vcpu->kvm, pa, &val, sizeof(val));
+	r = kvm_read_guest(vcpu->kvm, ws->desc_pa, &val, sizeof(val));
 	if (r)
 		return r;
 
@@ -213,9 +219,9 @@ static int read_guest_s2_desc(struct kvm_vcpu *vcpu, phys_addr_t pa, u64 *desc,
 	 * host and the guest hypervisor.
 	 */
 	if (wi->be)
-		*desc = be64_to_cpu((__force __be64)val);
+		ws->desc = be64_to_cpu((__force __be64)val);
 	else
-		*desc = le64_to_cpu((__force __le64)val);
+		ws->desc = le64_to_cpu((__force __le64)val);
 
 	return 0;
 }
@@ -244,22 +250,22 @@ static int swap_guest_s2_desc(struct kvm_vcpu *vcpu, phys_addr_t pa, u64 old, u6
 static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 			      struct s2_walk_info *wi, struct kvm_s2_trans *out)
 {
-	int first_block_level, level, stride, input_size, base_lower_bound;
+	int first_block_level, stride, input_size, base_lower_bound;
+	struct s2_walk_step ws = {};
 	phys_addr_t base_addr;
 	unsigned int addr_top, addr_bottom;
-	u64 desc, new_desc;  /* page table entry */
+	u64 new_desc;  /* page table entry */
 	int ret;
-	phys_addr_t paddr;
 
 	switch (BIT(wi->pgshift)) {
 	default:
 	case SZ_64K:
 	case SZ_16K:
-		level = 3 - wi->sl;
+		ws.level = 3 - wi->sl;
 		first_block_level = 2;
 		break;
 	case SZ_4K:
-		level = 2 - wi->sl;
+		ws.level = 2 - wi->sl;
 		first_block_level = 1;
 		break;
 	}
@@ -269,13 +275,13 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 	if (input_size > 48 || input_size < 25)
 		return -EFAULT;
 
-	ret = check_base_s2_limits(vcpu, wi, level, input_size, stride);
+	ret = check_base_s2_limits(vcpu, wi, ws.level, input_size, stride);
 	if (WARN_ON(ret)) {
 		out->esr = compute_fsc(0, ESR_ELx_FSC_FAULT);
 		return ret;
 	}
 
-	base_lower_bound = 3 + input_size - ((3 - level) * stride +
+	base_lower_bound = 3 + input_size - ((3 - ws.level) * stride +
 			   wi->pgshift);
 	base_addr = wi->baddr & GENMASK_ULL(47, base_lower_bound);
 
@@ -290,91 +296,90 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 	while (1) {
 		phys_addr_t index;
 
-		addr_bottom = (3 - level) * stride + wi->pgshift;
+		addr_bottom = (3 - ws.level) * stride + wi->pgshift;
 		index = (ipa & GENMASK_ULL(addr_top, addr_bottom))
 			>> (addr_bottom - 3);
 
-		paddr = base_addr | index;
-		ret = read_guest_s2_desc(vcpu, paddr, &desc, wi);
+		ws.desc_pa = base_addr | index;
+		ret = read_guest_s2_desc(vcpu, &ws, wi);
 		if (ret < 0) {
-			out->esr = ESR_ELx_FSC_SEA_TTW(level);
+			out->esr = ESR_ELx_FSC_SEA_TTW(ws.level);
 			return ret;
 		}
 
-		new_desc = desc;
+		new_desc = ws.desc;
 
 		/* Check for valid descriptor at this point */
-		if (!(desc & KVM_PTE_VALID)) {
-			out->esr = compute_fsc(level, ESR_ELx_FSC_FAULT);
-			out->desc = desc;
+		if (!(ws.desc & KVM_PTE_VALID)) {
+			out->esr = compute_fsc(ws.level, ESR_ELx_FSC_FAULT);
+			out->desc = ws.desc;
 			return 1;
 		}
 
-		if (FIELD_GET(KVM_PTE_TYPE, desc) == KVM_PTE_TYPE_BLOCK) {
-			if (level < 3)
+		if (FIELD_GET(KVM_PTE_TYPE, ws.desc) == KVM_PTE_TYPE_BLOCK) {
+			if (ws.level < 3)
 				break;
 
-			out->esr = compute_fsc(level, ESR_ELx_FSC_FAULT);
-			out->desc = desc;
+			out->esr = compute_fsc(ws.level, ESR_ELx_FSC_FAULT);
+			out->desc = ws.desc;
 			return 1;
 		}
 
 		/* We're at the final level */
-		if (level == 3)
+		if (ws.level == 3)
 			break;
 
-		if (check_output_size(wi, desc)) {
-			out->esr = compute_fsc(level, ESR_ELx_FSC_ADDRSZ);
-			out->desc = desc;
+		if (check_output_size(wi, ws.desc)) {
+			out->esr = compute_fsc(ws.level, ESR_ELx_FSC_ADDRSZ);
+			out->desc = ws.desc;
 			return 1;
 		}
 
-		base_addr = desc & GENMASK_ULL(47, wi->pgshift);
+		base_addr = ws.desc & GENMASK_ULL(47, wi->pgshift);
 
-		level += 1;
+		ws.level += 1;
 		addr_top = addr_bottom - 1;
 	}
 
-	if (level < first_block_level) {
-		out->esr = compute_fsc(level, ESR_ELx_FSC_FAULT);
-		out->desc = desc;
+	if (ws.level < first_block_level) {
+		out->esr = compute_fsc(ws.level, ESR_ELx_FSC_FAULT);
+		out->desc = ws.desc;
 		return 1;
 	}
 
-	if (check_output_size(wi, desc)) {
-		out->esr = compute_fsc(level, ESR_ELx_FSC_ADDRSZ);
-		out->desc = desc;
+	if (check_output_size(wi, ws.desc)) {
+		out->esr = compute_fsc(ws.level, ESR_ELx_FSC_ADDRSZ);
+		out->desc = ws.desc;
 		return 1;
 	}
 
 	if (wi->ha)
 		new_desc |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
 
-	if (new_desc != desc) {
-		ret = swap_guest_s2_desc(vcpu, paddr, desc, new_desc, wi);
+	if (new_desc != ws.desc) {
+		ret = swap_guest_s2_desc(vcpu, ws.desc_pa, ws.desc, new_desc, wi);
 		if (ret)
 			return ret;
 
-		desc = new_desc;
+		ws.desc = new_desc;
 	}
 
-	if (!(desc & KVM_PTE_LEAF_ATTR_LO_S2_AF)) {
-		out->esr = compute_fsc(level, ESR_ELx_FSC_ACCESS);
-		out->desc = desc;
+	if (!(ws.desc & KVM_PTE_LEAF_ATTR_LO_S2_AF)) {
+		out->esr = compute_fsc(ws.level, ESR_ELx_FSC_ACCESS);
+		out->desc = ws.desc;
 		return 1;
 	}
 
-	addr_bottom += contiguous_bit_shift(desc, wi, level);
+	addr_bottom += contiguous_bit_shift(ws.desc, wi, ws.level);
 
 	/* Calculate and return the result */
-	paddr = (desc & GENMASK_ULL(47, addr_bottom)) |
-		(ipa & GENMASK_ULL(addr_bottom - 1, 0));
-	out->output = paddr;
-	out->block_size = 1UL << ((3 - level) * stride + wi->pgshift);
-	out->readable = desc & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R;
-	out->writable = desc & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
-	out->level = level;
-	out->desc = desc;
+	out->output = (ws.desc & GENMASK_ULL(47, addr_bottom)) |
+		      (ipa & GENMASK_ULL(addr_bottom - 1, 0));
+	out->block_size = 1UL << ((3 - ws.level) * stride + wi->pgshift);
+	out->readable = ws.desc & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R;
+	out->writable = ws.desc & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
+	out->level = ws.level;
+	out->desc = ws.desc;
 	return 0;
 }
 
