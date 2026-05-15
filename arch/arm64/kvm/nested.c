@@ -226,9 +226,21 @@ static int read_guest_s2_desc(struct kvm_vcpu *vcpu, struct s2_walk_step *ws,
 	return 0;
 }
 
-static int swap_guest_s2_desc(struct kvm_vcpu *vcpu, phys_addr_t pa, u64 old, u64 new,
-			      struct s2_walk_info *wi)
+static int handle_desc_update(struct kvm_vcpu *vcpu, struct s2_walk_info *wi,
+			      struct s2_walk_step *ws)
 {
+	u64 old, new;
+
+	old = new = ws->desc;
+
+	if (wi->ha)
+		new |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
+
+	if (old == new)
+		return 0;
+
+	ws->desc = new;
+
 	if (wi->be) {
 		old = (__force u64)cpu_to_be64(old);
 		new = (__force u64)cpu_to_be64(new);
@@ -237,7 +249,7 @@ static int swap_guest_s2_desc(struct kvm_vcpu *vcpu, phys_addr_t pa, u64 old, u6
 		new = (__force u64)cpu_to_le64(new);
 	}
 
-	return __kvm_at_swap_desc(vcpu->kvm, pa, old, new);
+	return __kvm_at_swap_desc(vcpu->kvm, ws->desc_pa, old, new);
 }
 
 /*
@@ -254,7 +266,6 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 	struct s2_walk_step ws = {};
 	phys_addr_t base_addr;
 	unsigned int addr_top, addr_bottom;
-	u64 new_desc;  /* page table entry */
 	int ret;
 
 	switch (BIT(wi->pgshift)) {
@@ -307,8 +318,6 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 			return ret;
 		}
 
-		new_desc = ws.desc;
-
 		/* Check for valid descriptor at this point */
 		if (!(ws.desc & KVM_PTE_VALID)) {
 			out->esr = compute_fsc(ws.level, ESR_ELx_FSC_FAULT);
@@ -353,16 +362,9 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 		return 1;
 	}
 
-	if (wi->ha)
-		new_desc |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
-
-	if (new_desc != ws.desc) {
-		ret = swap_guest_s2_desc(vcpu, ws.desc_pa, ws.desc, new_desc, wi);
-		if (ret)
-			return ret;
-
-		ws.desc = new_desc;
-	}
+	ret = handle_desc_update(vcpu, wi, &ws);
+	if (ret)
+		return ret;
 
 	if (!(ws.desc & KVM_PTE_LEAF_ATTR_LO_S2_AF)) {
 		out->esr = compute_fsc(ws.level, ESR_ELx_FSC_ACCESS);
