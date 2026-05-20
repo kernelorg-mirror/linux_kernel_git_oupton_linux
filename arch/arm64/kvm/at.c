@@ -405,12 +405,13 @@ static void compute_s1_permissions(struct kvm_vcpu *vcpu,
 				   struct s1_walk_result *wr);
 
 static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
-		   struct s1_walk_result *wr, u64 va)
+		   struct s1_walk_result *wr, struct kvm_walk_access *access)
 {
-	u64 va_top, va_bottom, baddr, desc, new_desc, ipa;
+	u64 va_top, va_bottom, baddr, desc, new_desc, ipa, va;
 	struct kvm_s2_trans s2_trans = {};
 	int level, stride, ret;
 
+	va = access->ia;
 	level = wi->sl;
 	stride = wi->pgshift - 3;
 	baddr = wi->baddr;
@@ -1261,6 +1262,7 @@ static void compute_s1_permissions(struct kvm_vcpu *vcpu,
 
 static int handle_at_slow(struct kvm_vcpu *vcpu, u32 op, u64 vaddr, u64 *par)
 {
+	struct kvm_walk_access access = {};
 	struct s1_walk_result wr = {};
 	struct s1_walk_info wi = {};
 	bool perm_fail = false;
@@ -1278,9 +1280,21 @@ static int handle_at_slow(struct kvm_vcpu *vcpu, u32 op, u64 vaddr, u64 *par)
 	if (wr.level == S1_MMU_DISABLED)
 		goto compute_par;
 
+	access.type = WALK_ACCESS_AT;
+	access.ia = vaddr;
+	switch (op) {
+	case OP_AT_S1E1WP:
+	case OP_AT_S1E1W:
+	case OP_AT_S1E2W:
+	case OP_AT_S1E0W:
+		access.write = true;
+		break;
+	default:
+	}
+
 	idx = srcu_read_lock(&vcpu->kvm->srcu);
 
-	ret = walk_s1(vcpu, &wi, &wr, vaddr);
+	ret = walk_s1(vcpu, &wi, &wr, &access);
 
 	srcu_read_unlock(&vcpu->kvm->srcu, idx);
 
@@ -1601,11 +1615,11 @@ int __kvm_at_s12(struct kvm_vcpu *vcpu, u32 op, u64 vaddr)
  * set. The rest of the wi and wr should be 0-initialised.
  */
 int __kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
-		       struct s1_walk_result *wr, u64 va)
+		       struct s1_walk_result *wr, struct kvm_walk_access *access)
 {
 	int ret;
 
-	ret = setup_s1_walk(vcpu, wi, wr, va);
+	ret = setup_s1_walk(vcpu, wi, wr, access->ia);
 	if (ret)
 		return ret;
 
@@ -1615,7 +1629,7 @@ int __kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		return 0;
 	}
 
-	return walk_s1(vcpu, wi, wr, va);
+	return walk_s1(vcpu, wi, wr, access);
 }
 
 struct desc_match {
@@ -1653,6 +1667,10 @@ int __kvm_find_s1_desc_level(struct kvm_vcpu *vcpu, u64 va, u64 ipa, int *level)
 		.as_el0	= false,
 		.pan	= false,
 	};
+	struct kvm_walk_access access = {
+		.type	= WALK_ACCESS_NONARCH,
+		.ia	= va,
+	};
 	struct s1_walk_result wr = {};
 	int ret;
 
@@ -1672,7 +1690,7 @@ int __kvm_find_s1_desc_level(struct kvm_vcpu *vcpu, u64 va, u64 ipa, int *level)
 	}
 
 	/* Walk the guest's PT, looking for a match along the way */
-	ret = walk_s1(vcpu, &wi, &wr, va);
+	ret = walk_s1(vcpu, &wi, &wr, &access);
 	switch (ret) {
 	case -EINTR:
 		/* We interrupted the walk on a match, return the level */

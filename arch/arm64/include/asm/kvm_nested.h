@@ -135,6 +135,8 @@ struct kvm_walk_access {
 		WALK_ACCESS_CMO,
 		WALK_ACCESS_AT,
 		WALK_ACCESS_S1PTW,
+		WALK_ACCESS_NV2,
+		WALK_ACCESS_NONARCH,
 	} type;
 
 	u64	ia;
@@ -371,7 +373,7 @@ struct s1_walk_result {
 };
 
 int __kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
-		       struct s1_walk_result *wr, u64 va);
+		       struct s1_walk_result *wr, struct kvm_walk_access *access);
 int __kvm_find_s1_desc_level(struct kvm_vcpu *vcpu, u64 va, u64 ipa,
 			     int *level);
 

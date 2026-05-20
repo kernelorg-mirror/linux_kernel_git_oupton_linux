@@ -1340,6 +1340,7 @@ static u64 read_vncr_el2(struct kvm_vcpu *vcpu)
 
 static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
 {
+	struct kvm_walk_access access = {};
 	struct kvm_memory_slot *memslot;
 	bool write_fault, writable;
 	unsigned long mmu_seq;
@@ -1349,6 +1350,7 @@ static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
 	int ret;
 
 	vt = vcpu->arch.vncr_tlb;
+	write_fault = kvm_is_write_fault(vcpu);
 
 	/*
 	 * If we're about to walk the EL2 S1 PTs, we must invalidate the
@@ -1373,11 +1375,13 @@ static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
 
 	va =  read_vncr_el2(vcpu);
 
-	ret = __kvm_translate_va(vcpu, &vt->wi, &vt->wr, va);
+	access.type = WALK_ACCESS_NV2;
+	access.ia = va;
+	access.write = write_fault;
+
+	ret = __kvm_translate_va(vcpu, &vt->wi, &vt->wr, &access);
 	if (ret)
 		return ret;
-
-	write_fault = kvm_is_write_fault(vcpu);
 
 	mmu_seq = vcpu->kvm->mmu_invalidate_seq;
 	smp_rmb();
