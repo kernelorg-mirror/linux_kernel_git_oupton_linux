@@ -368,6 +368,14 @@ transfault:
 	return -EFAULT;
 }
 
+struct s1_walk_step {
+	u64			desc;
+	u64			desc_ipa;
+	u64			desc_pa;
+	struct kvm_s2_trans	s2_trans;
+	int			level;
+};
+
 static int kvm_read_s1_desc(struct kvm_vcpu *vcpu, u64 pa, u64 *desc,
 			    struct s1_walk_info *wi)
 {
@@ -407,12 +415,12 @@ static void compute_s1_permissions(struct kvm_vcpu *vcpu,
 static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		   struct s1_walk_result *wr, struct kvm_walk_access *access)
 {
-	u64 va_top, va_bottom, baddr, desc, new_desc, ipa, va;
-	struct kvm_s2_trans s2_trans = {};
-	int level, stride, ret;
+	u64 va_top, va_bottom, baddr, new_desc, va;
+	struct s1_walk_step ws = {};
+	int stride, ret;
 
 	va = access->ia;
-	level = wi->sl;
+	ws.level = wi->sl;
 	stride = wi->pgshift - 3;
 	baddr = wi->baddr;
 
@@ -421,33 +429,33 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 	while (1) {
 		u64 index;
 
-		va_bottom = (3 - level) * stride + wi->pgshift;
+		va_bottom = (3 - ws.level) * stride + wi->pgshift;
 		index = (va & GENMASK_ULL(va_top, va_bottom)) >> (va_bottom - 3);
 
-		ipa = baddr | index;
+		ws.desc_ipa = ws.desc_pa = baddr | index;
 
 		if (wi->s2) {
 			struct kvm_walk_access s2_access = {
 				.type	= WALK_ACCESS_S1PTW,
-				.ia	= ipa,
+				.ia	= ws.desc_ipa,
 			};
 
-			ret = kvm_walk_nested_s2(vcpu, &s2_access, &s2_trans);
+			ret = kvm_walk_nested_s2(vcpu, &s2_access, &ws.s2_trans);
 			if (ret) {
 				fail_s1_walk(wr,
-					     (s2_trans.esr & ~ESR_ELx_FSC_LEVEL) | level,
+					     (ws.s2_trans.esr & ~ESR_ELx_FSC_LEVEL) | ws.level,
 					     true);
 				return ret;
 			}
 
-			if (!kvm_s2_trans_readable(&s2_trans)) {
-				fail_s1_walk(wr, ESR_ELx_FSC_PERM_L(level),
+			if (!kvm_s2_trans_readable(&ws.s2_trans)) {
+				fail_s1_walk(wr, ESR_ELx_FSC_PERM_L(ws.level),
 					     true);
 
 				return -EPERM;
 			}
 
-			ipa = kvm_s2_trans_output(&s2_trans);
+			ws.desc_pa = kvm_s2_trans_output(&ws.s2_trans);
 		}
 
 		if (wi->filter) {
@@ -455,40 +463,40 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 					     {
 						     .wi	= wi,
 						     .table_ipa	= baddr,
-						     .level	= level,
+						     .level	= ws.level,
 					     }, wi->filter->priv);
 			if (ret)
 				return ret;
 		}
 
-		ret = kvm_read_s1_desc(vcpu, ipa, &desc, wi);
+		ret = kvm_read_s1_desc(vcpu, ws.desc_pa, &ws.desc, wi);
 		if (ret) {
-			fail_s1_walk(wr, ESR_ELx_FSC_SEA_TTW(level), false);
+			fail_s1_walk(wr, ESR_ELx_FSC_SEA_TTW(ws.level), false);
 			return ret;
 		}
 
-		new_desc = desc;
+		new_desc = ws.desc;
 
 		/* Invalid descriptor */
-		if (!(desc & BIT(0)))
+		if (!(ws.desc & BIT(0)))
 			goto transfault;
 
 		/* Block mapping, check validity down the line */
-		if (!(desc & BIT(1)))
+		if (!(ws.desc & BIT(1)))
 			break;
 
 		/* Page mapping */
-		if (level == 3)
+		if (ws.level == 3)
 			break;
 
 		/* Table handling */
 		if (!wi->hpd) {
-			wr->APTable  |= FIELD_GET(S1_TABLE_AP, desc);
-			wr->UXNTable |= FIELD_GET(PMD_TABLE_UXN, desc);
-			wr->PXNTable |= FIELD_GET(PMD_TABLE_PXN, desc);
+			wr->APTable  |= FIELD_GET(S1_TABLE_AP, ws.desc);
+			wr->UXNTable |= FIELD_GET(PMD_TABLE_UXN, ws.desc);
+			wr->PXNTable |= FIELD_GET(PMD_TABLE_PXN, ws.desc);
 		}
 
-		baddr = desc_to_oa(wi, desc);
+		baddr = desc_to_oa(wi, ws.desc);
 
 		/* Check for out-of-range OA */
 		if (check_output_size(baddr, wi))
@@ -496,20 +504,20 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 
 		/* Prepare for next round */
 		va_top = va_bottom - 1;
-		level++;
+		ws.level++;
 	}
 
 	/* Block mapping, check the validity of the level */
-	if (!(desc & BIT(1))) {
+	if (!(ws.desc & BIT(1))) {
 		bool valid_block = false;
 
 		switch (BIT(wi->pgshift)) {
 		case SZ_4K:
-			valid_block = level == 1 || level == 2 || (wi->pa52bit && level == 0);
+			valid_block = ws.level == 1 || ws.level == 2 || (wi->pa52bit && ws.level == 0);
 			break;
 		case SZ_16K:
 		case SZ_64K:
-			valid_block = level == 2 || (wi->pa52bit && level == 1);
+			valid_block = ws.level == 2 || (wi->pa52bit && ws.level == 1);
 			break;
 		}
 
@@ -517,19 +525,19 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 			goto transfault;
 	}
 
-	baddr = desc_to_oa(wi, desc);
+	baddr = desc_to_oa(wi, ws.desc);
 	if (check_output_size(baddr & GENMASK(52, va_bottom), wi))
 		goto addrsz;
 
-	va_bottom += contiguous_bit_shift(desc, wi, level);
+	va_bottom += contiguous_bit_shift(ws.desc, wi, ws.level);
 
 	wr->failed = false;
-	wr->level = level;
-	wr->desc = desc;
+	wr->level = ws.level;
+	wr->desc = ws.desc;
 	wr->pa = baddr & GENMASK(52, va_bottom);
 	wr->pa |= va & GENMASK_ULL(va_bottom - 1, 0);
 
-	wr->nG = (wi->regime != TR_EL2) && (desc & PTE_NG);
+	wr->nG = (wi->regime != TR_EL2) && (ws.desc & PTE_NG);
 	if (wr->nG)
 		wr->asid = get_asid_by_regime(vcpu, wi->regime);
 
@@ -538,31 +546,31 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 	if (wi->ha)
 		new_desc |= PTE_AF;
 
-	if (new_desc != desc) {
-		if (wi->s2 && !kvm_s2_trans_writable(&s2_trans)) {
-			fail_s1_walk(wr, ESR_ELx_FSC_PERM_L(level), true);
+	if (new_desc != ws.desc) {
+		if (wi->s2 && !kvm_s2_trans_writable(&ws.s2_trans)) {
+			fail_s1_walk(wr, ESR_ELx_FSC_PERM_L(ws.level), true);
 			return -EPERM;
 		}
 
-		ret = kvm_swap_s1_desc(vcpu, ipa, desc, new_desc, wi);
+		ret = kvm_swap_s1_desc(vcpu, ws.desc_pa, ws.desc, new_desc, wi);
 		if (ret)
 			return ret;
 
-		desc = new_desc;
+		ws.desc = new_desc;
 	}
 
-	if (!(desc & PTE_AF)) {
-		fail_s1_walk(wr, ESR_ELx_FSC_ACCESS_L(level), false);
+	if (!(ws.desc & PTE_AF)) {
+		fail_s1_walk(wr, ESR_ELx_FSC_ACCESS_L(ws.level), false);
 		return -EACCES;
 	}
 
 	return 0;
 
 addrsz:
-	fail_s1_walk(wr, ESR_ELx_FSC_ADDRSZ_L(level), false);
+	fail_s1_walk(wr, ESR_ELx_FSC_ADDRSZ_L(ws.level), false);
 	return -EINVAL;
 transfault:
-	fail_s1_walk(wr, ESR_ELx_FSC_FAULT_L(level), false);
+	fail_s1_walk(wr, ESR_ELx_FSC_FAULT_L(ws.level), false);
 	return -ENOENT;
 }
 
