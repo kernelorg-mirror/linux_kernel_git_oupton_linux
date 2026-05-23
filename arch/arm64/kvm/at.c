@@ -139,7 +139,7 @@ static void compute_s1poe(struct kvm_vcpu *vcpu, struct s1_walk_info *wi)
 static int setup_s1_walk(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 			 struct s1_walk_result *wr, u64 va)
 {
-	u64 hcr, sctlr, tcr, tg, ps, ia_bits, ttbr;
+	u64 hcr, sctlr, tcr, tcr2, tg, ps, ia_bits, ttbr;
 	unsigned int stride, x;
 	bool va55, tbi, lva;
 
@@ -158,6 +158,7 @@ static int setup_s1_walk(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 	case TR_EL10:
 		sctlr	= vcpu_read_sys_reg(vcpu, SCTLR_EL1);
 		tcr	= vcpu_read_sys_reg(vcpu, TCR_EL1);
+		tcr2	= vcpu_read_sys_reg(vcpu, TCR2_EL1);
 		ttbr	= (va55 ?
 			   vcpu_read_sys_reg(vcpu, TTBR1_EL1) :
 			   vcpu_read_sys_reg(vcpu, TTBR0_EL1));
@@ -166,6 +167,7 @@ static int setup_s1_walk(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 	case TR_EL20:
 		sctlr	= vcpu_read_sys_reg(vcpu, SCTLR_EL2);
 		tcr	= vcpu_read_sys_reg(vcpu, TCR_EL2);
+		tcr2	= vcpu_read_sys_reg(vcpu, TCR2_EL2);
 		ttbr	= (va55 ?
 			   vcpu_read_sys_reg(vcpu, TTBR1_EL2) :
 			   vcpu_read_sys_reg(vcpu, TTBR0_EL2));
@@ -356,6 +358,8 @@ static int setup_s1_walk(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		  FIELD_GET(TCR_EL2_HD, tcr) :
 		  FIELD_GET(TCR_HD, tcr));
 
+	wi->haft = FIELD_GET(TCR2_EL1_HAFT, tcr2);
+
 	return 0;
 
 addrsz:
@@ -398,6 +402,16 @@ static int kvm_read_s1_desc(struct kvm_vcpu *vcpu, u64 pa, u64 *desc,
 	return 0;
 }
 
+static bool should_set_access_flag(struct s1_walk_info *wi, struct s1_walk_step *ws,
+				   struct kvm_walk_access *access)
+{
+	if (ws->level == 3 || FIELD_GET(KVM_PTE_TYPE, ws->desc) == KVM_PTE_TYPE_BLOCK)
+		return wi->ha;
+
+	/* R_SNVTX */
+	return wi->ha && wi->haft;
+}
+
 static bool should_set_dirty_state(struct s1_walk_info *wi, struct s1_walk_step *ws,
 				   struct s1_walk_result *wr, struct kvm_walk_access *access)
 {
@@ -423,7 +437,7 @@ static int handle_desc_update(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 
 	old = new = ws->desc;
 
-	if (wi->ha)
+	if (should_set_access_flag(wi, ws, access))
 		new |= PTE_AF;
 
 	if (should_set_dirty_state(wi, ws, wr, access))
@@ -530,6 +544,10 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		/* Page mapping */
 		if (ws.level == 3)
 			break;
+
+		ret = handle_desc_update(vcpu, wi, &ws, wr, access);
+		if (ret)
+			return ret;
 
 		/* Table handling */
 		if (!wi->hpd) {
