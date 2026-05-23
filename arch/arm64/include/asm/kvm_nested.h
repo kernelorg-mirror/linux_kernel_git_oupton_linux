@@ -339,6 +339,7 @@ struct s1_walk_info {
 	bool	     		s2;
 	bool			pa52bit;
 	bool			ha;
+	bool			hd;
 };
 
 struct s1_walk_result {
