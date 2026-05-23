@@ -412,6 +412,10 @@ static int setup_s1_walk(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 	wi->ha &= (wi->regime == TR_EL2 ?
 		  FIELD_GET(TCR_EL2_HA, tcr) :
 		  FIELD_GET(TCR_HA, tcr));
+	wi->hd  = kvm_has_feat(vcpu->kvm, ID_AA64MMFR1_EL1, HAFDBS, DBM);
+	wi->hd &= (wi->regime == TR_EL2 ?
+		  FIELD_GET(TCR_EL2_HD, tcr) :
+		  FIELD_GET(TCR_HD, tcr));
 
 	return 0;
 
@@ -455,6 +459,22 @@ static int kvm_read_s1_desc(struct kvm_vcpu *vcpu, u64 pa, u64 *desc,
 	return 0;
 }
 
+static bool should_set_dirty_state(struct s1_walk_info *wi, struct s1_walk_step *ws,
+				   struct s1_walk_result *wr, struct kvm_walk_access *access)
+{
+	bool perm = wi->as_el0 ? wr->uw : wr->pw;
+
+	switch (access->type) {
+	/* R_RKMHW */
+	case WALK_ACCESS_CMO:
+	case WALK_ACCESS_AT:
+		return false;
+	default:
+		/* R_NSXRD */
+		return access->write && wi->hd && perm;
+	}
+}
+
 static int handle_desc_update(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 			      struct s1_walk_step *ws, struct s1_walk_result *wr,
 			      struct kvm_walk_access *access)
@@ -466,6 +486,9 @@ static int handle_desc_update(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 
 	if (wi->ha)
 		new |= PTE_AF;
+
+	if (should_set_dirty_state(wi, ws, wr, access))
+		new &= ~PTE_RDONLY;
 
 	if (new == old)
 		return 0;
