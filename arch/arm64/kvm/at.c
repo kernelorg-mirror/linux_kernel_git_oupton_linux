@@ -455,9 +455,28 @@ static int kvm_read_s1_desc(struct kvm_vcpu *vcpu, u64 pa, u64 *desc,
 	return 0;
 }
 
-static int kvm_swap_s1_desc(struct kvm_vcpu *vcpu, u64 pa, u64 old, u64 new,
-			    struct s1_walk_info *wi)
+static int handle_desc_update(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
+			      struct s1_walk_step *ws, struct s1_walk_result *wr,
+			      struct kvm_walk_access *access)
 {
+	u64 old, new;
+	int ret;
+
+	old = new = ws->desc;
+
+	if (wi->ha)
+		new |= PTE_AF;
+
+	if (new == old)
+		return 0;
+
+	if (wi->s2 && !ws->s2_trans.writable) {
+		fail_s1_walk(wr, ESR_ELx_FSC_PERM_L(ws->level), true);
+		return -EPERM;
+	}
+
+	ws->desc = new;
+
 	if (wi->be) {
 		old = (__force u64)cpu_to_be64(old);
 		new = (__force u64)cpu_to_be64(new);
@@ -466,7 +485,12 @@ static int kvm_swap_s1_desc(struct kvm_vcpu *vcpu, u64 pa, u64 old, u64 new,
 		new = (__force u64)cpu_to_le64(new);
 	}
 
-	return __kvm_at_swap_desc(vcpu->kvm, pa, old, new);
+	ret = __kvm_at_swap_desc(vcpu->kvm, ws->desc_pa, old, new);
+	if (!ret || ret == -EAGAIN)
+		return ret;
+
+	fail_s1_walk(wr, ESR_ELx_FSC_SEA_TTW(ws->level), false);
+	return ret;
 }
 
 static void compute_s1_permissions(struct kvm_vcpu *vcpu,
@@ -617,25 +641,9 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 
 	compute_s1_permissions(vcpu, wi, wr);
 
-	if (wi->ha)
-		new_desc |= PTE_AF;
-
-	if (new_desc != ws.desc) {
-		if (wi->s2 && !ws.s2_trans.writable) {
-			fail_s1_walk(wr, ESR_ELx_FSC_PERM_L(ws.level), true);
-			return -EPERM;
-		}
-
-		ret = kvm_swap_s1_desc(vcpu, ws.desc_pa, ws.desc, new_desc, wi);
-		if (ret == -EAGAIN)
-			return ret;
-		if (ret) {
-			fail_s1_walk(wr, ESR_ELx_FSC_SEA_TTW(ws.level), false);
-			return ret;
-		}
-
-		ws.desc = new_desc;
-	}
+	ret = handle_desc_update(vcpu, wi, &ws, wr, access);
+	if (ret)
+		return ret;
 
 	if (!(ws.desc & PTE_AF)) {
 		fail_s1_walk(wr, ESR_ELx_FSC_ACCESS_L(ws.level), false);
