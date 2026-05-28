@@ -400,6 +400,10 @@ static int kvm_swap_s1_desc(struct kvm_vcpu *vcpu, u64 pa, u64 old, u64 new,
 	return __kvm_at_swap_desc(vcpu->kvm, pa, old, new);
 }
 
+static void compute_s1_permissions(struct kvm_vcpu *vcpu,
+				   struct s1_walk_info *wi,
+				   struct s1_walk_result *wr);
+
 static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		   struct s1_walk_result *wr, u64 va)
 {
@@ -516,6 +520,20 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 	if (check_output_size(baddr & GENMASK(52, va_bottom), wi))
 		goto addrsz;
 
+	va_bottom += contiguous_bit_shift(desc, wi, level);
+
+	wr->failed = false;
+	wr->level = level;
+	wr->desc = desc;
+	wr->pa = baddr & GENMASK(52, va_bottom);
+	wr->pa |= va & GENMASK_ULL(va_bottom - 1, 0);
+
+	wr->nG = (wi->regime != TR_EL2) && (desc & PTE_NG);
+	if (wr->nG)
+		wr->asid = get_asid_by_regime(vcpu, wi->regime);
+
+	compute_s1_permissions(vcpu, wi, wr);
+
 	if (wi->ha)
 		new_desc |= PTE_AF;
 
@@ -536,18 +554,6 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		fail_s1_walk(wr, ESR_ELx_FSC_ACCESS_L(level), false);
 		return -EACCES;
 	}
-
-	va_bottom += contiguous_bit_shift(desc, wi, level);
-
-	wr->failed = false;
-	wr->level = level;
-	wr->desc = desc;
-	wr->pa = baddr & GENMASK(52, va_bottom);
-	wr->pa |= va & GENMASK_ULL(va_bottom - 1, 0);
-
-	wr->nG = (wi->regime != TR_EL2) && (desc & PTE_NG);
-	if (wr->nG)
-		wr->asid = get_asid_by_regime(vcpu, wi->regime);
 
 	return 0;
 
@@ -1286,8 +1292,6 @@ static int handle_at_slow(struct kvm_vcpu *vcpu, u32 op, u64 vaddr, u64 *par)
 	if (ret)
 		goto compute_par;
 
-	compute_s1_permissions(vcpu, &wi, &wr);
-
 	switch (op) {
 	case OP_AT_S1E1RP:
 	case OP_AT_S1E1R:
@@ -1608,15 +1612,10 @@ int __kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 	if (wr->level == S1_MMU_DISABLED) {
 		wr->ur = wr->uw = wr->ux = true;
 		wr->pr = wr->pw = wr->px = true;
-	} else {
-		ret = walk_s1(vcpu, wi, wr, va);
-		if (ret)
-			return ret;
-
-		compute_s1_permissions(vcpu, wi, wr);
+		return 0;
 	}
 
-	return 0;
+	return walk_s1(vcpu, wi, wr, va);
 }
 
 struct desc_match {
