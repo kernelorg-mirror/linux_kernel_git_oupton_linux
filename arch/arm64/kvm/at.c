@@ -494,6 +494,9 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 			struct kvm_walk_access s2_access = {
 				.type	= WALK_ACCESS_S1PTW,
 				.ia	= ws.desc_ipa,
+
+				/* R_JCXVS */
+				.write	= wi->ha || wi->hd,
 			};
 
 			ret = kvm_walk_nested_s2(vcpu, &s2_access, &ws.s2_trans);
