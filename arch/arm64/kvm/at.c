@@ -998,11 +998,23 @@ static void compute_s1_direct_permissions(struct kvm_vcpu *vcpu,
 					  struct s1_walk_info *wi,
 					  struct s1_walk_result *wr)
 {
+	u8 ap = FIELD_GET(PTE_USER | PTE_RDONLY, wr->desc);
 	bool wxn;
+
+	/*
+	 * Descriptors with the DBM bit set while hardware dirty state are
+	 * considered writable, even though certain accesses (like AT instructions)
+	 * don't actually update the dirty state.
+	 *
+	 * Assume that walk_s1() made the necessary descriptor updates for the
+	 * access and just treat DBM as writable here.
+	 */
+	if (wi->hd && (wr->desc & PTE_DBM))
+		ap &= ~BIT(1);
 
 	/* Non-hierarchical part of AArch64.S1DirectBasePermissions() */
 	if (wi->regime != TR_EL2) {
-		switch (FIELD_GET(PTE_USER | PTE_RDONLY, wr->desc)) {
+		switch (ap) {
 		case 0b00:
 			wr->pr = wr->pw = true;
 			wr->ur = wr->uw = false;
@@ -1026,7 +1038,7 @@ static void compute_s1_direct_permissions(struct kvm_vcpu *vcpu,
 	} else {
 		wr->ur = wr->uw = wr->ux = false;
 
-		if (!(wr->desc & PTE_RDONLY)) {
+		if (!(ap & BIT(1))) {
 			wr->pr = wr->pw = true;
 		} else {
 			wr->pr = true;
