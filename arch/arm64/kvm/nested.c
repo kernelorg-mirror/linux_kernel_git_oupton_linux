@@ -362,16 +362,6 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, struct kvm_walk_access *acc
 		return 1;
 	}
 
-	ret = handle_desc_update(vcpu, wi, &ws);
-	if (ret)
-		return ret;
-
-	if (!(ws.desc & KVM_PTE_LEAF_ATTR_LO_S2_AF)) {
-		out->esr = compute_fsc(ws.level, ESR_ELx_FSC_ACCESS);
-		out->desc = ws.desc;
-		return 1;
-	}
-
 	addr_bottom += contiguous_bit_shift(ws.desc, wi, ws.level);
 
 	/* Calculate and return the result */
@@ -382,6 +372,20 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, struct kvm_walk_access *acc
 	out->writable = ws.desc & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
 	out->level = ws.level;
 	out->desc = ws.desc;
+
+	ret = handle_desc_update(vcpu, wi, &ws);
+	if (ret)
+		return ret;
+
+	if (!(ws.desc & KVM_PTE_LEAF_ATTR_LO_S2_AF)) {
+		*out = (struct kvm_s2_trans) {
+			.esr	= compute_fsc(ws.level, ESR_ELx_FSC_ACCESS),
+			.desc	= ws.desc,
+		};
+
+		return 1;
+	}
+
 	return 0;
 }
 
