@@ -305,6 +305,17 @@ static void compute_s2_permissions(struct kvm_vcpu *vcpu, struct s2_walk_info *w
 		break;
 	}
 
+	/*
+	 * Descriptors with the DBM bit set while hardware dirty state are
+	 * considered writable, even though certain accesses (like AT instructions)
+	 * don't actually update the dirty state.
+	 *
+	 * Assume that walk_nestd_s2_pgd() made the necessary descriptor updates
+	 * for the access and just treat DBM as writable here.
+	 */
+	if (wi->hd && ws->desc & KVM_PTE_LEAF_ATTR_HI_S2_DBM)
+		s2ap |= BIT(1);
+
 	trans->readable = s2ap & BIT(0);
 	trans->writable = s2ap & BIT(1);
 
