@@ -244,7 +244,7 @@ static bool should_set_dirty_state(struct s2_walk_info *wi, struct s2_walk_step 
 		return false;
 
 	/* R_RKMHW */
-	if (access->type == WALK_ACCESS_CMO || access->type == WALK_ACCESS_AT)
+	if (access->type == WALK_ACCESS_AT)
 		return false;
 
 	return access->write && wi->hd && (ws->desc & KVM_PTE_LEAF_ATTR_HI_S2_DBM);

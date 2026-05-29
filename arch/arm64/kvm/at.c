@@ -419,7 +419,7 @@ static bool should_set_dirty_state(struct s1_walk_info *wi, struct s1_walk_step 
 		return false;
 
 	/* R_RKMHW */
-	if (access->type == WALK_ACCESS_CMO || access->type == WALK_ACCESS_AT)
+	if (access->type == WALK_ACCESS_AT)
 		return false;
 
 	if (!(access->write && wi->hd))
