@@ -278,6 +278,9 @@ static void compute_s2_permissions(struct kvm_vcpu *vcpu, struct s2_walk_info *w
 		break;
 	}
 
+	if (wi->hd && (wr->desc & KVM_PTE_LEAF_ATTR_HI_S2_DBM))
+		s2ap |= BIT(1);
+
 	wr->readable = s2ap & BIT(0);
 	wr->writable = s2ap & BIT(1);
 }
