@@ -1557,9 +1557,9 @@ static enum kvm_pgtable_prot adjust_nested_exec_perms(struct kvm *kvm,
 						      struct kvm_s2_trans *nested,
 						      enum kvm_pgtable_prot prot)
 {
-	if (!kvm_s2_trans_exec_el0(kvm, nested))
+	if (!nested->ux)
 		prot &= ~KVM_PGTABLE_PROT_UX;
-	if (!kvm_s2_trans_exec_el1(kvm, nested))
+	if (!nested->px)
 		prot &= ~KVM_PGTABLE_PROT_PX;
 
 	return prot;
