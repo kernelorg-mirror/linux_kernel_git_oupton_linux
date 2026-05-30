@@ -13,6 +13,7 @@
 
 enum {
 	CLEAR_ACCESS_FLAG,
+	TEST_ACCESS_FLAG,
 };
 
 static u64 *ptep_hva;
@@ -48,21 +49,12 @@ do {											\
 		GUEST_ASSERT_EQ(FIELD_GET(SYS_PAR_EL1_ATTR, par), MAIR_ATTR_NORMAL);	\
 		GUEST_ASSERT_EQ(FIELD_GET(SYS_PAR_EL1_SH, par), PTE_SHARED >> 8);	\
 		GUEST_ASSERT_EQ(par & SYS_PAR_EL1_PA, TEST_ADDR);			\
+		GUEST_SYNC(TEST_ACCESS_FLAG);						\
 	}										\
 } while (0)
 
 static void test_at(bool expect_fault)
 {
-	test_at_insn(S1E2R, expect_fault);
-	test_at_insn(S1E2W, expect_fault);
-
-	/* Reuse the stage-1 MMU context from EL2 at EL1 */
-	copy_el2_to_el1(SCTLR);
-	copy_el2_to_el1(MAIR);
-	copy_el2_to_el1(TCR);
-	copy_el2_to_el1(TTBR0);
-	copy_el2_to_el1(TTBR1);
-
 	/* Disable stage-2 translation and enter a non-host context */
 	write_sysreg(0, vtcr_el2);
 	write_sysreg(0, vttbr_el2);
@@ -71,11 +63,21 @@ static void test_at(bool expect_fault)
 
 	test_at_insn(S1E1R, expect_fault);
 	test_at_insn(S1E1W, expect_fault);
+
+	sysreg_clear_set(hcr_el2, 0, HCR_EL2_TGE | HCR_EL2_VM);
+	isb();
 }
 
 static void guest_code(void)
 {
-	sysreg_clear_set(tcr_el1, TCR_HA, 0);
+	/* Reuse the stage-1 MMU context from EL2 at EL1 */
+	copy_el2_to_el1(SCTLR);
+	copy_el2_to_el1(MAIR);
+	copy_el2_to_el1(TCR);
+	copy_el2_to_el1(TTBR0);
+	copy_el2_to_el1(TTBR1);
+
+	sysreg_clear_set_s(SYS_TCR_EL12, TCR_HA, 0);
 	isb();
 
 	test_at(true);
@@ -83,7 +85,11 @@ static void guest_code(void)
 	if (!SYS_FIELD_GET(ID_AA64MMFR1_EL1, HAFDBS, read_sysreg(id_aa64mmfr1_el1)))
 		GUEST_DONE();
 
-	sysreg_clear_set(tcr_el1, 0, TCR_HA);
+	/*
+	 * KVM's software PTW makes the implementation choice that the AT
+	 * instruction sets the access flag.
+	 */
+	sysreg_clear_set_s(SYS_TCR_EL12, 0, TCR_HA);
 	isb();
 	test_at(false);
 
@@ -96,8 +102,8 @@ static void handle_sync(struct kvm_vcpu *vcpu, struct ucall *uc)
 	case CLEAR_ACCESS_FLAG:
 		/*
 		 * Delete + reinstall the memslot to invalidate stage-2
-		 * mappings of the stage-1 page tables, allowing KVM to
-		 * potentially use the 'slow' AT emulation path.
+		 * mappings of the stage-1 page tables, forcing KVM to
+		 * use the 'slow' AT emulation path.
 		 *
 		 * This and clearing the access flag from host userspace
 		 * ensures that the access flag cannot be set speculatively
@@ -105,6 +111,10 @@ static void handle_sync(struct kvm_vcpu *vcpu, struct ucall *uc)
 		 */
 		clear_bit(__ffs(PTE_AF), ptep_hva);
 		vm_mem_region_reload(vcpu->vm, vcpu->vm->memslots[MEM_REGION_PT]);
+		break;
+	case TEST_ACCESS_FLAG:
+		TEST_ASSERT(test_bit(__ffs(PTE_AF), ptep_hva),
+			    "Expected access flag to be set (desc: %lu)", *ptep_hva);
 		break;
 	default:
 		TEST_FAIL("Unexpected SYNC arg: %lu", uc->args[1]);
