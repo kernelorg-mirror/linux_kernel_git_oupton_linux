@@ -13,10 +13,11 @@
 
 enum {
 	CLEAR_ACCESS_FLAG,
-	TEST_ACCESS_FLAG,
+	ASSERT_ACCESS_FLAG_SET,
+	ASSERT_ACCESS_FLAG_CLEAR,
 };
 
-static u64 *ptep_hva;
+static u64 *page_ptep, *table_ptep;
 
 #define copy_el2_to_el1(reg)						\
 	write_sysreg_s(read_sysreg_s(SYS_##reg##_EL1), SYS_##reg##_EL12)
@@ -45,11 +46,12 @@ do {											\
 		__GUEST_ASSERT(fsc == ESR_ELx_FSC_ACCESS_L(3),				\
 			       "AT "#op": expected access flag fault (par: %lx)",	\
 			       par);							\
+		GUEST_SYNC(ASSERT_ACCESS_FLAG_CLEAR);					\
 	} else {									\
 		GUEST_ASSERT_EQ(FIELD_GET(SYS_PAR_EL1_ATTR, par), MAIR_ATTR_NORMAL);	\
 		GUEST_ASSERT_EQ(FIELD_GET(SYS_PAR_EL1_SH, par), PTE_SHARED >> 8);	\
 		GUEST_ASSERT_EQ(par & SYS_PAR_EL1_PA, TEST_ADDR);			\
-		GUEST_SYNC(TEST_ACCESS_FLAG);						\
+		GUEST_SYNC(ASSERT_ACCESS_FLAG_SET);					\
 	}										\
 } while (0)
 
@@ -66,6 +68,14 @@ static void test_at(bool expect_fault)
 
 	sysreg_clear_set(hcr_el2, 0, HCR_EL2_TGE | HCR_EL2_VM);
 	isb();
+}
+
+static bool guest_has_haft(void)
+{
+	u64 mmfr1 = read_sysreg(id_aa64mmfr1_el1);
+
+	return SYS_FIELD_GET(ID_AA64MMFR1_EL1, HAFDBS, mmfr1) >=
+		ID_AA64MMFR1_EL1_HAFDBS_HAFT;
 }
 
 static void guest_code(void)
@@ -93,7 +103,31 @@ static void guest_code(void)
 	isb();
 	test_at(false);
 
+	if (!guest_has_haft())
+		GUEST_DONE();
+
+	sysreg_clear_set_s(SYS_TCR2_EL12, 0, TCR2_EL1_HAFT);
+	isb();
+	test_at(false);
+
+	/* The effective value of HAFT is 0 if HA is 0 */
+	sysreg_clear_set_s(SYS_TCR_EL12, TCR_HA, 0);
+	isb();
+	test_at(true);
+
 	GUEST_DONE();
+}
+
+static bool vcpu_haft_enabled(struct kvm_vcpu *vcpu)
+{
+	u64 mmfr1 = vcpu_get_reg(vcpu, KVM_ARM64_SYS_REG(SYS_ID_AA64MMFR1_EL1));
+	u64 tcr2 = vcpu_get_reg(vcpu, KVM_ARM64_SYS_REG(SYS_TCR2_EL1));
+	u8 hafdbs = SYS_FIELD_GET(ID_AA64MMFR1_EL1, HAFDBS, mmfr1);
+
+	if (hafdbs < ID_AA64MMFR1_EL1_HAFDBS_HAFT)
+		return false;
+
+	return tcr2 & TCR2_EL1_HAFT;
 }
 
 static void handle_sync(struct kvm_vcpu *vcpu, struct ucall *uc)
@@ -109,12 +143,25 @@ static void handle_sync(struct kvm_vcpu *vcpu, struct ucall *uc)
 		 * ensures that the access flag cannot be set speculatively
 		 * and is reliably cleared at the time of the AT instruction.
 		 */
-		clear_bit(__ffs(PTE_AF), ptep_hva);
+		clear_bit(__ffs(PTE_AF), page_ptep);
+		clear_bit(__ffs(PTE_AF), table_ptep);
 		vm_mem_region_reload(vcpu->vm, vcpu->vm->memslots[MEM_REGION_PT]);
 		break;
-	case TEST_ACCESS_FLAG:
-		TEST_ASSERT(test_bit(__ffs(PTE_AF), ptep_hva),
-			    "Expected access flag to be set (desc: %lu)", *ptep_hva);
+	case ASSERT_ACCESS_FLAG_SET:
+		TEST_ASSERT(test_bit(__ffs(PTE_AF), page_ptep),
+			    "Expected access flag to be set (desc: %lu)", *page_ptep);
+		if (!vcpu_haft_enabled(vcpu))
+			TEST_ASSERT(!test_bit(__ffs(PTE_AF), table_ptep),
+				    "Expected access flag to be clear (desc: %lu)", *table_ptep);
+		else
+			TEST_ASSERT(test_bit(__ffs(PTE_AF), table_ptep),
+				    "Expected access flag to be set (desc: %lu)", *table_ptep);
+		break;
+	case ASSERT_ACCESS_FLAG_CLEAR:
+		TEST_ASSERT(!test_bit(__ffs(PTE_AF), page_ptep),
+			    "Expected access flag to be clear (desc: %lu)", *page_ptep);
+		TEST_ASSERT(!test_bit(__ffs(PTE_AF), table_ptep),
+			    "Expected access flag to be clear (desc: %lu)", *table_ptep);
 		break;
 	default:
 		TEST_FAIL("Unexpected SYNC arg: %lu", uc->args[1]);
@@ -158,7 +205,8 @@ int main(void)
 	kvm_arch_vm_finalize_vcpus(vm);
 
 	virt_map(vm, TEST_ADDR, TEST_ADDR, 1);
-	ptep_hva = virt_get_pte_hva_at_level(vm, TEST_ADDR, 3);
+	page_ptep = virt_get_pte_hva_at_level(vm, TEST_ADDR, 3);
+	table_ptep = virt_get_pte_hva_at_level(vm, TEST_ADDR, 2);
 	run_test(vcpu);
 
 	kvm_vm_free(vm);
