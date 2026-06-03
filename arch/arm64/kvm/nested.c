@@ -954,9 +954,9 @@ int kvm_s2_handle_perm_fault(struct kvm_vcpu *vcpu, struct kvm_s2_trans *trans)
 
 	if (kvm_vcpu_trap_is_iabt(vcpu)) {
 		if (vcpu_mode_priv(vcpu))
-			forward_fault = !kvm_s2_trans_exec_el1(vcpu->kvm, trans);
+			forward_fault = !trans->px;
 		else
-			forward_fault = !kvm_s2_trans_exec_el0(vcpu->kvm, trans);
+			forward_fault = !trans->ux;
 	} else {
 		bool write_fault = kvm_is_write_fault(vcpu);
 

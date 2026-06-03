@@ -98,45 +98,10 @@ struct kvm_s2_trans {
 	bool		ux;
 };
 
-static inline phys_addr_t kvm_s2_trans_output(struct kvm_s2_trans *trans)
-{
-	return trans->output;
-}
-
-static inline unsigned long kvm_s2_trans_size(struct kvm_s2_trans *trans)
-{
-	return trans->block_size;
-}
-
-static inline u32 kvm_s2_trans_esr(struct kvm_s2_trans *trans)
-{
-	return trans->esr;
-}
-
-static inline bool kvm_s2_trans_readable(struct kvm_s2_trans *trans)
-{
-	return trans->readable;
-}
-
-static inline bool kvm_s2_trans_writable(struct kvm_s2_trans *trans)
-{
-	return trans->writable;
-}
-
 static inline bool kvm_has_xnx(struct kvm *kvm)
 {
 	return cpus_have_final_cap(ARM64_HAS_XNX) &&
 		kvm_has_feat(kvm, ID_AA64MMFR1_EL1, XNX, IMP);
-}
-
-static inline bool kvm_s2_trans_exec_el0(struct kvm *kvm, struct kvm_s2_trans *trans)
-{
-	return trans->ux;
-}
-
-static inline bool kvm_s2_trans_exec_el1(struct kvm *kvm, struct kvm_s2_trans *trans)
-{
-	return trans->px;
 }
 
 extern int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, phys_addr_t gipa,

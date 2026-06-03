@@ -1572,9 +1572,9 @@ static int topup_mmu_memcache(struct kvm_vcpu *vcpu, void *memcache)
 static enum kvm_pgtable_prot adjust_nested_fault_perms(struct kvm_s2_trans *nested,
 						       enum kvm_pgtable_prot prot)
 {
-	if (!kvm_s2_trans_writable(nested))
+	if (!nested->writable)
 		prot &= ~KVM_PGTABLE_PROT_W;
-	if (!kvm_s2_trans_readable(nested))
+	if (!nested->readable)
 		prot &= ~KVM_PGTABLE_PROT_R;
 
 	return prot | kvm_encode_nested_level(nested);
@@ -1584,9 +1584,9 @@ static enum kvm_pgtable_prot adjust_nested_exec_perms(struct kvm *kvm,
 						      struct kvm_s2_trans *nested,
 						      enum kvm_pgtable_prot prot)
 {
-	if (!kvm_s2_trans_exec_el0(kvm, nested))
+	if (!nested->ux)
 		prot &= ~KVM_PGTABLE_PROT_UX;
-	if (!kvm_s2_trans_exec_el1(kvm, nested))
+	if (!nested->px)
 		prot &= ~KVM_PGTABLE_PROT_PX;
 
 	return prot;
@@ -1623,7 +1623,7 @@ static int gmem_abort(const struct kvm_s2_fault_desc *s2fd)
 	}
 
 	if (s2fd->nested)
-		gfn = kvm_s2_trans_output(s2fd->nested) >> PAGE_SHIFT;
+		gfn = s2fd->nested->output >> PAGE_SHIFT;
 	else
 		gfn = s2fd->fault_ipa >> PAGE_SHIFT;
 
@@ -1817,7 +1817,7 @@ static short kvm_s2_resolve_vma_size(const struct kvm_s2_fault_desc *s2fd,
 		 * can only create a block mapping if the guest stage 2 page
 		 * table uses at least as big a mapping.
 		 */
-		max_map_size = min(kvm_s2_trans_size(s2fd->nested), max_map_size);
+		max_map_size = min(s2fd->nested->block_size, max_map_size);
 
 		/*
 		 * Be careful that if the mapping size falls between
@@ -1891,7 +1891,7 @@ static gfn_t get_canonical_gfn(const struct kvm_s2_fault_desc *s2fd,
 	if (!s2fd->nested)
 		return s2vi->gfn;
 
-	ipa = kvm_s2_trans_output(s2fd->nested);
+	ipa = s2fd->nested->output;
 	return ALIGN_DOWN(ipa, s2vi->vma_pagesize) >> PAGE_SHIFT;
 }
 
@@ -2322,19 +2322,19 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
 		}
 
 		if (ret) {
-			esr = kvm_s2_trans_esr(&nested_trans);
+			esr = nested_trans.esr;
 			kvm_inject_s2_fault(vcpu, esr);
 			goto out_unlock;
 		}
 
 		ret = kvm_s2_handle_perm_fault(vcpu, &nested_trans);
 		if (ret) {
-			esr = kvm_s2_trans_esr(&nested_trans);
+			esr = nested_trans.esr;
 			kvm_inject_s2_fault(vcpu, esr);
 			goto out_unlock;
 		}
 
-		ipa = kvm_s2_trans_output(&nested_trans);
+		ipa = nested_trans.output;
 		nested = &nested_trans;
 	}
 

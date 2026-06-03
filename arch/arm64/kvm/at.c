@@ -494,14 +494,14 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 				return ret;
 			}
 
-			if (!kvm_s2_trans_readable(&s2_trans)) {
+			if (!s2_trans.readable) {
 				fail_s1_walk(wr, ESR_ELx_FSC_PERM_L(level),
 					     true);
 
 				return -EPERM;
 			}
 
-			ipa = kvm_s2_trans_output(&s2_trans);
+			ipa = s2_trans.output;
 		}
 
 		if (wi->filter) {
@@ -582,7 +582,7 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		new_desc |= PTE_AF;
 
 	if (new_desc != desc) {
-		if (wi->s2 && !kvm_s2_trans_writable(&s2_trans)) {
+		if (wi->s2 && !s2_trans.writable) {
 			fail_s1_walk(wr, ESR_ELx_FSC_PERM_L(level), true);
 			return -EPERM;
 		}
