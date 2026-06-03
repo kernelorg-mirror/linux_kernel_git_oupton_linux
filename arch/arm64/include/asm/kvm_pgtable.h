@@ -131,6 +131,17 @@ static inline bool kvm_pte_valid(kvm_pte_t pte)
 	return pte & KVM_PTE_VALID;
 }
 
+static inline bool kvm_pte_table(kvm_pte_t pte, s8 level)
+{
+	if (level == KVM_PGTABLE_LAST_LEVEL)
+		return false;
+
+	if (!kvm_pte_valid(pte))
+		return false;
+
+	return FIELD_GET(KVM_PTE_TYPE, pte) == KVM_PTE_TYPE_TABLE;
+}
+
 static inline u64 kvm_pte_to_phys(kvm_pte_t pte)
 {
 	u64 pa;
