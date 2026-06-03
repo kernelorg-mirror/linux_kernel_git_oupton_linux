@@ -459,6 +459,15 @@ static int kvm_read_s1_desc(struct kvm_vcpu *vcpu, u64 pa, u64 *desc,
 	return 0;
 }
 
+static bool should_set_access_flag(struct s1_walk_info *wi, struct s1_walk_step *ws,
+				   struct kvm_walk_access *access)
+{
+	if (access->type == WALK_ACCESS_NONARCH)
+		return false;
+
+	return wi->ha;
+}
+
 static bool should_set_dirty_state(struct s1_walk_info *wi, struct s1_walk_step *ws,
 				   struct s1_walk_result *wr, struct kvm_walk_access *access)
 {
@@ -468,6 +477,7 @@ static bool should_set_dirty_state(struct s1_walk_info *wi, struct s1_walk_step 
 	/* R_RKMHW */
 	case WALK_ACCESS_CMO:
 	case WALK_ACCESS_AT:
+	case WALK_ACCESS_NONARCH:
 		return false;
 	default:
 		/* R_NSXRD */
@@ -484,7 +494,7 @@ static int handle_desc_update(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 
 	old = new = ws->desc;
 
-	if (wi->ha)
+	if (should_set_access_flag(wi, ws, access))
 		new |= PTE_AF;
 
 	if (should_set_dirty_state(wi, ws, wr, access))
@@ -554,6 +564,9 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 				 */
 				.write	= wi->ha,
 			};
+
+			if (access->type == WALK_ACCESS_NONARCH)
+				s2_access.type = WALK_ACCESS_NONARCH;
 
 			ret = kvm_walk_nested_s2(vcpu, &s2_access, &ws.s2_trans);
 			if (ret == -EAGAIN)

@@ -228,6 +228,15 @@ static int read_guest_s2_desc(struct kvm_vcpu *vcpu, struct s2_walk_step *ws,
 	return 0;
 }
 
+static bool should_set_access_flag(struct s2_walk_info *wi, struct s2_walk_step *ws,
+				   struct kvm_walk_access *access)
+{
+	if (access->type == WALK_ACCESS_NONARCH)
+		return false;
+
+	return wi->ha;
+}
+
 static bool should_set_dirty_state(struct s2_walk_info *wi, struct s2_walk_step *ws,
 				   struct kvm_s2_trans *out, struct kvm_walk_access *access)
 {
@@ -235,6 +244,7 @@ static bool should_set_dirty_state(struct s2_walk_info *wi, struct s2_walk_step 
 	/* R_RKMHW */
 	case WALK_ACCESS_CMO:
 	case WALK_ACCESS_AT:
+	case WALK_ACCESS_NONARCH:
 		return false;
 	default:
 		/* R_NSXRD */
@@ -251,7 +261,7 @@ static int handle_desc_update(struct kvm_vcpu *vcpu, struct s2_walk_info *wi,
 
 	old = new = ws->desc;
 
-	if (wi->ha)
+	if (should_set_access_flag(wi, ws, access))
 		new |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
 
 	if (should_set_dirty_state(wi, ws, out, access))
