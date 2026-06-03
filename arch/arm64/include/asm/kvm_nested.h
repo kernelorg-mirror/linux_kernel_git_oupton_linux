@@ -87,13 +87,15 @@ extern void kvm_nested_sync_hwstate(struct kvm_vcpu *vcpu);
 extern void kvm_nested_setup_mdcr_el2(struct kvm_vcpu *vcpu);
 
 struct kvm_s2_trans {
-	phys_addr_t output;
-	unsigned long block_size;
-	bool writable;
-	bool readable;
-	int level;
-	u32 esr;
-	u64 desc;
+	u64		desc;
+	phys_addr_t	output;
+	unsigned long	block_size;
+	int		level;
+	u32		esr;
+	bool		writable;
+	bool		readable;
+	bool		px;
+	bool		ux;
 };
 
 static inline phys_addr_t kvm_s2_trans_output(struct kvm_s2_trans *trans)
@@ -129,34 +131,12 @@ static inline bool kvm_has_xnx(struct kvm *kvm)
 
 static inline bool kvm_s2_trans_exec_el0(struct kvm *kvm, struct kvm_s2_trans *trans)
 {
-	u8 xn = FIELD_GET(KVM_PTE_LEAF_ATTR_HI_S2_XN, trans->desc);
-
-	if (!kvm_has_xnx(kvm))
-		xn &= FIELD_PREP(KVM_PTE_LEAF_ATTR_HI_S2_XN, 0b10);
-
-	switch (xn) {
-	case 0b00:
-	case 0b01:
-		return true;
-	default:
-		return false;
-	}
+	return trans->ux;
 }
 
 static inline bool kvm_s2_trans_exec_el1(struct kvm *kvm, struct kvm_s2_trans *trans)
 {
-	u8 xn = FIELD_GET(KVM_PTE_LEAF_ATTR_HI_S2_XN, trans->desc);
-
-	if (!kvm_has_xnx(kvm))
-		xn &= FIELD_PREP(KVM_PTE_LEAF_ATTR_HI_S2_XN, 0b10);
-
-	switch (xn) {
-	case 0b00:
-	case 0b11:
-		return true;
-	default:
-		return false;
-	}
+	return trans->px;
 }
 
 extern int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, phys_addr_t gipa,

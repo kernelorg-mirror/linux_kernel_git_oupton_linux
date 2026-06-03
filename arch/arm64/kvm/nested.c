@@ -241,6 +241,36 @@ static int swap_guest_s2_desc(struct kvm_vcpu *vcpu, phys_addr_t pa, u64 old, u6
 	return __kvm_at_swap_desc(vcpu->kvm, pa, old, new);
 }
 
+static void compute_s2_permissions(struct kvm_vcpu *vcpu, struct s2_walk_info *wi,
+				   struct s2_walk_step *ws, struct kvm_s2_trans *trans)
+{
+	u8 s2ap = FIELD_GET(KVM_PTE_LEAF_ATTR_LO_S2_S2AP, ws->desc);
+	u8 xn = FIELD_GET(KVM_PTE_LEAF_ATTR_HI_S2_XN, ws->desc);
+
+	if (!kvm_has_xnx(vcpu->kvm))
+		xn &= 0b10;
+
+	switch (xn) {
+	case 0b00:
+		trans->px = trans->ux = true;
+		break;
+	case 0b01:
+		trans->px = false;
+		trans->ux = true;
+		break;
+	case 0b10:
+		trans->px = trans->ux = false;
+		break;
+	case 0b11:
+		trans->px = true;
+		trans->ux = false;
+		break;
+	}
+
+	trans->readable = s2ap & BIT(0);
+	trans->writable = s2ap & BIT(1);
+}
+
 /*
  * This is essentially a C-version of the pseudo code from the ARM ARM
  * AArch64.TranslationTableWalk  function.  I strongly recommend looking at
@@ -382,8 +412,7 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, phys_addr_t ipa,
 	out->output = (ws.desc & GENMASK_ULL(47, addr_bottom)) |
 		      (ipa & GENMASK_ULL(addr_bottom - 1, 0));
 	out->block_size = 1UL << ((3 - ws.level) * stride + wi->pgshift);
-	out->readable = ws.desc & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R;
-	out->writable = ws.desc & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
+	compute_s2_permissions(vcpu, wi, &ws, out);
 	out->level = ws.level;
 	out->desc = ws.desc;
 	return 0;
