@@ -94,6 +94,7 @@ struct kvm_s2_trans {
 	u32		esr;
 	bool		writable;
 	bool		readable;
+	bool		dirty;
 	bool		px;
 	bool		ux;
 };
@@ -323,6 +324,7 @@ struct s1_walk_result {
 			bool	pr;
 			bool	pw;
 			bool	px;
+			bool	dirty;
 		};
 		struct {
 			u8	fst;

@@ -1572,7 +1572,7 @@ static int topup_mmu_memcache(struct kvm_vcpu *vcpu, void *memcache)
 static enum kvm_pgtable_prot adjust_nested_fault_perms(struct kvm_s2_trans *nested,
 						       enum kvm_pgtable_prot prot)
 {
-	if (!nested->writable)
+	if (!(nested->writable && nested->dirty))
 		prot &= ~KVM_PGTABLE_PROT_W;
 	if (!nested->readable)
 		prot &= ~KVM_PGTABLE_PROT_R;
