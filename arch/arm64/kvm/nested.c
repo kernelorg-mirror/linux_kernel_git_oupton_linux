@@ -133,6 +133,7 @@ struct s2_walk_info {
 	bool		be;
 	bool		ha;
 	bool		hd;
+	bool		haft;
 };
 
 struct s2_walk_step {
@@ -234,12 +235,15 @@ static bool should_set_access_flag(struct s2_walk_info *wi, struct s2_walk_step 
 	if (access->type == WALK_ACCESS_NONARCH)
 		return false;
 
-	return wi->ha;
+	return kvm_pte_table(ws->desc, ws->level) ? wi->haft : wi->ha;
 }
 
 static bool should_set_dirty_state(struct s2_walk_info *wi, struct s2_walk_step *ws,
 				   struct kvm_s2_trans *out, struct kvm_walk_access *access)
 {
+	if (kvm_pte_table(ws->desc, ws->level))
+		return false;
+
 	switch (access->type) {
 	/* R_RKMHW */
 	case WALK_ACCESS_CMO:
@@ -424,6 +428,10 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, struct kvm_walk_access *acc
 			return 1;
 		}
 
+		ret = handle_desc_update(vcpu, wi, &ws, out, access);
+		if (ret)
+			return ret;
+
 		base_addr = ws.desc & GENMASK_ULL(47, wi->pgshift);
 
 		ws.level += 1;
@@ -562,6 +570,7 @@ static void setup_s2_walk(struct kvm_vcpu *vcpu, struct s2_walk_info *wi)
 	wi->ha = vtcr & VTCR_EL2_HA;
 	wi->be = vcpu_read_sys_reg(vcpu, SCTLR_EL2) & SCTLR_ELx_EE;
 	wi->hd = wi->ha && (vtcr & VTCR_EL2_HD);
+	wi->haft = wi->ha && (vtcr & VTCR_EL2_HAFT);
 }
 
 int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, struct kvm_walk_access *access,
