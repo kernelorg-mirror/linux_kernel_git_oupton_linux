@@ -2045,7 +2045,22 @@ u64 limit_nv_id_reg(struct kvm *kvm, u32 reg, u64 val)
 		if (test_bit(KVM_ARM_VCPU_HAS_EL2_E2H0, kvm->arch.vcpu_features))
 			val &= ~ID_AA64MMFR1_EL1_VH;
 
-		val = ID_REG_LIMIT_FIELD_ENUM(val, ID_AA64MMFR1_EL1, HAFDBS, AF);
+		/*
+		 * Advertise FEAT_HAFDBS if we have good reason to believe that
+		 * the VM is fully coherent, largely sidestepping some architectural
+		 * warts around cache maintenance and dirty state. Noncoherent DMA can
+		 * come along later and throw a spanner in the works, necessitating
+		 * full trap+emulate of CMOs.
+		 *
+		 * FEAT_CMOW is incompatible with KVM's emulation of FEAT_HAFDBS, as
+		 * there's no emulation of instruction cache maintenance. Yes dear
+		 * reader, IC IVAU can optionally require write permission.
+		 */
+		if (cpus_have_final_cap(ARM64_HAS_STAGE2_FWB) &&
+		    cpus_have_final_cap(ARM64_HAS_CACHE_DIC))
+			val = ID_REG_LIMIT_FIELD_ENUM(val, ID_AA64MMFR1_EL1, HAFDBS, DBM);
+		else
+			val = ID_REG_LIMIT_FIELD_ENUM(val, ID_AA64MMFR1_EL1, HAFDBS, AF);
 		break;
 
 	case SYS_ID_AA64MMFR2_EL1:
