@@ -288,6 +288,8 @@ static void compute_s2_permissions(struct kvm_vcpu *vcpu, struct s2_walk_info *w
 
 	trans->readable = s2ap & BIT(0);
 	trans->writable = s2ap & BIT(1);
+
+	trans->dirty = ws->desc & BIT(7);
 }
 
 /*
@@ -1597,6 +1599,11 @@ bool kvm_arch_vcpu_map_allowed(struct kvm_vcpu *vcpu, kvm_pfn_t pfn, bool writab
 	return pfn_is_map_memory(pfn);
 }
 
+static bool vncr_can_map_writable(struct vncr_tlb *vt)
+{
+	return vt->wr.pw && vt->wr.dirty && vt->hpa_writable;
+}
+
 static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
 {
 	struct kvm_memory_slot *memslot;
@@ -1688,10 +1695,10 @@ static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
 		atomic_set(&vt->cpu, -1);
 
 		kvm_make_request(KVM_REQ_MAP_L1_VNCR_EL2, vcpu);
-		kvm_release_faultin_page(vcpu->kvm, page, false, vt->wr.pw && vt->hpa_writable);
+		kvm_release_faultin_page(vcpu->kvm, page, false, vncr_can_map_writable(vt));
 	}
 
-	if (vt->wr.pw && vt->hpa_writable)
+	if (vncr_can_map_writable(vt))
 		mark_page_dirty(vcpu->kvm, gfn);
 
 	return 0;
@@ -1707,7 +1714,7 @@ static void handle_vncr_perm(struct kvm_vcpu *vcpu)
 	 * Promote to an external abort if the stage-1 permits writes but the
 	 * HPA is read-only (e.g. RO memslot).
 	 */
-	if (kvm_is_write_fault(vcpu) && vt->wr.pw && !vt->hpa_writable)
+	if (kvm_is_write_fault(vcpu) && vt->wr.pw && vt->wr.dirty && !vt->hpa_writable)
 		fsc = ESR_ELx_FSC_EXTABT;
 	/*
 	 * Otherwise, inject a permission fault using the guest's translation
@@ -1786,7 +1793,7 @@ int kvm_handle_vncr_abort(struct kvm_vcpu *vcpu)
 		kvm_inject_nested_sync(vcpu, esr);
 		break;
 	case 0:
-		perm = kvm_is_write_fault(vcpu) ? vt->wr.pw && vt->hpa_writable : vt->wr.pr;
+		perm = kvm_is_write_fault(vcpu) ? vncr_can_map_writable(vt) : vt->wr.pr;
 		if (!perm)
 			handle_vncr_perm(vcpu);
 		break;
@@ -1829,7 +1836,7 @@ static void kvm_map_l1_vncr(struct kvm_vcpu *vcpu)
 	if (vt->wr.nG && get_asid_by_regime(vcpu, TR_EL20) != vt->wr.asid)
 		return;
 
-	if (vt->hpa_writable && vt->wr.pw && vt->wr.pr)
+	if (vncr_can_map_writable(vt) && vt->wr.pr)
 		prot = PAGE_KERNEL;
 	else if (vt->wr.pr)
 		prot = PAGE_KERNEL_RO;

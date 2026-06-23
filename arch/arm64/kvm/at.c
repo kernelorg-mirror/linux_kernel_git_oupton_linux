@@ -1315,6 +1315,7 @@ static void compute_s1_permissions(struct kvm_vcpu *vcpu,
 			  (pan3_enabled(vcpu, wi->regime) && wr->ux));
 	wr->pw &= !pan;
 	wr->pr &= !pan;
+	wr->dirty = !(wr->desc & BIT(7));
 }
 
 static int handle_at_slow(struct kvm_vcpu *vcpu, u32 op, u64 vaddr, u64 *par)
@@ -1673,6 +1674,7 @@ int __kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 	if (wr->level == S1_MMU_DISABLED) {
 		wr->ur = wr->uw = wr->ux = true;
 		wr->pr = wr->pw = wr->px = true;
+		wr->dirty = true;
 	} else {
 		ret = walk_s1(vcpu, wi, wr, va);
 		if (ret)
