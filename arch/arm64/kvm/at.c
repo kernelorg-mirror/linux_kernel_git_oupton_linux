@@ -414,6 +414,8 @@ static int setup_s1_walk(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 	wi->hd &= (wi->regime == TR_EL2 ?
 		  FIELD_GET(TCR_EL2_HD, tcr) :
 		  FIELD_GET(TCR_HD, tcr));
+	wi->haft  = kvm_has_feat(vcpu->kvm, ID_AA64MMFR1_EL1, HAFDBS, HAFT) && wi->ha &&
+		    FIELD_GET(TCR2_EL1_HAFT, effective_tcr2(vcpu, wi->regime));
 
 	return 0;
 
@@ -463,13 +465,16 @@ static bool should_set_access_flag(struct s1_walk_info *wi, struct s1_walk_step 
 	if (access->type == WALK_ACCESS_NONARCH)
 		return false;
 
-	return wi->ha;
+	return kvm_pte_table(ws->desc, ws->level) ? wi->haft : wi->ha;
 }
 
 static bool should_set_dirty_state(struct s1_walk_info *wi, struct s1_walk_step *ws,
 				   struct s1_walk_result *wr, struct kvm_walk_access *access)
 {
 	bool perm = wi->as_el0 ? wr->uw : wr->pw;
+
+	if (kvm_pte_table(ws->desc, ws->level))
+		return false;
 
 	switch (access->type) {
 	/* R_RKMHW */
@@ -622,18 +627,22 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		if (ws.level == 3)
 			break;
 
+		baddr = desc_to_oa(wi, ws.desc);
+
+		/* Check for out-of-range OA */
+		if (check_output_size(baddr, wi))
+			goto addrsz;
+
+		ret = handle_desc_update(vcpu, wi, &ws, wr, access);
+		if (ret)
+			return ret;
+
 		/* Table handling */
 		if (!wi->hpd) {
 			wr->APTable  |= FIELD_GET(S1_TABLE_AP, ws.desc);
 			wr->UXNTable |= FIELD_GET(PMD_TABLE_UXN, ws.desc);
 			wr->PXNTable |= FIELD_GET(PMD_TABLE_PXN, ws.desc);
 		}
-
-		baddr = desc_to_oa(wi, ws.desc);
-
-		/* Check for out-of-range OA */
-		if (check_output_size(baddr, wi))
-			goto addrsz;
 
 		/* Prepare for next round */
 		va_top = va_bottom - 1;
