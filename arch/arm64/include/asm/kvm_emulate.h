@@ -457,6 +457,11 @@ static __always_inline bool kvm_vcpu_dabt_iswrite(const struct kvm_vcpu *vcpu)
 	return esr_dabt_is_write(kvm_vcpu_get_esr(vcpu));
 }
 
+static __always_inline bool kvm_vcpu_dabt_is_cm(const struct kvm_vcpu *vcpu)
+{
+	return esr_dabt_is_cm(kvm_vcpu_get_esr(vcpu));
+}
+
 static __always_inline unsigned int kvm_vcpu_dabt_get_as(const struct kvm_vcpu *vcpu)
 {
 	return 1 << ((kvm_vcpu_get_esr(vcpu) & ESR_ELx_SAS) >> ESR_ELx_SAS_SHIFT);
