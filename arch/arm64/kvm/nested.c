@@ -246,7 +246,6 @@ static bool should_set_dirty_state(struct s2_walk_info *wi, struct s2_walk_step 
 
 	switch (access->type) {
 	/* R_RKMHW */
-	case WALK_ACCESS_CMO:
 	case WALK_ACCESS_AT:
 	case WALK_ACCESS_NONARCH:
 		return false;
