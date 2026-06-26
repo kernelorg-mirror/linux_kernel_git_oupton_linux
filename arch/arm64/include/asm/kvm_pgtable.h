@@ -28,6 +28,11 @@
 
 #define kvm_lpa2_is_enabled()		system_supports_lpa2()
 
+static inline bool kvm_s2pie_enabled(void)
+{
+	return false;
+}
+
 static inline u64 kvm_get_parange_max(void)
 {
 	if (kvm_lpa2_is_enabled() ||
@@ -92,12 +97,27 @@ typedef u64 kvm_pte_t;
 #define KVM_PTE_LEAF_ATTR_HI_S1_PXN	BIT(53)
 
 #define KVM_PTE_LEAF_ATTR_HI_S2_XN	GENMASK(54, 53)
+#define KVM_PTE_LEAF_ATTR_HI_S2_DBM	BIT(51)
 
 #define KVM_PTE_LEAF_ATTR_HI_S1_GP	BIT(50)
 
 #define KVM_PTE_LEAF_ATTR_S2_PERMS	(KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R | \
 					 KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W | \
 					 KVM_PTE_LEAF_ATTR_HI_S2_XN)
+
+#define KVM_PTE_LEAF_ATTR_S2_PI_INDEX_3_2	KVM_PTE_LEAF_ATTR_HI_S2_XN
+#define KVM_PTE_LEAF_ATTR_S2_PI_INDEX_1		KVM_PTE_LEAF_ATTR_HI_S2_DBM
+#define KVM_PTE_LEAF_ATTR_S2_PI_INDEX_0		KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R
+#define KVM_PTE_LEAF_ATTR_S2_PI_INDEX	(KVM_PTE_LEAF_ATTR_S2_PI_INDEX_3_2 |	\
+					 KVM_PTE_LEAF_ATTR_S2_PI_INDEX_1   |	\
+					 KVM_PTE_LEAF_ATTR_S2_PI_INDEX_0)
+
+#define kvm_pi_index_pte(pi_index) (						\
+	FIELD_PREP(KVM_PTE_LEAF_ATTR_S2_PI_INDEX_3_2, (pi_index >> 2) & 0x3) |	\
+	FIELD_PREP(KVM_PTE_LEAF_ATTR_S2_PI_INDEX_1, (pi_index >> 1) & 0x1) |	\
+	FIELD_PREP(KVM_PTE_LEAF_ATTR_S2_PI_INDEX_0, pi_index & 0x1))
+
+#define KVM_PTE_LEAF_ATTR_LO_S2_DIRTY		BIT(7)
 
 /* pKVM invalid pte encodings */
 #define KVM_INVALID_PTE_TYPE_MASK	GENMASK(63, 60)

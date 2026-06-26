@@ -674,6 +674,41 @@ void kvm_tlb_flush_vmid_range(struct kvm_s2_mmu *mmu,
 		__attr;							\
 	})
 
+static s8 stage2_prot_to_pi_index[KVM_PGTABLE_PROT_RWX + 1] = {
+	[0 ... KVM_PGTABLE_PROT_RWX]			= -1,
+	[0]						= S2PIR_NoAccess,
+	[KVM_PGTABLE_PROT_R]				= S2PIR_RO,
+	[KVM_PGTABLE_PROT_W]				= S2PIR_WO,
+	[KVM_PGTABLE_PROT_R | KVM_PGTABLE_PROT_W]	= S2PIR_RW,
+	[KVM_PGTABLE_PROT_R | KVM_PGTABLE_PROT_UX]	= S2PIR_RO_uX,
+	[KVM_PGTABLE_PROT_R | KVM_PGTABLE_PROT_PX]	= S2PIR_RO_pX,
+	[KVM_PGTABLE_PROT_R | KVM_PGTABLE_PROT_X]	= S2PIR_RO_puX,
+	[KVM_PGTABLE_PROT_RW | KVM_PGTABLE_PROT_UX]	= S2PIR_RW_uX,
+	[KVM_PGTABLE_PROT_RW | KVM_PGTABLE_PROT_PX]	= S2PIR_RW_pX,
+	[KVM_PGTABLE_PROT_RW | KVM_PGTABLE_PROT_X]	= S2PIR_RW_puX,
+};
+
+static int stage2_set_indirect_perms(enum kvm_pgtable_prot prot, kvm_pte_t *attr)
+{
+	s8 pi_index;
+
+	pi_index = stage2_prot_to_pi_index[prot & KVM_PGTABLE_PROT_RWX];
+	if (pi_index < 0)
+		return -EINVAL;
+
+	*attr |= kvm_pi_index_pte(pi_index);
+
+	/*
+	 * Dirty state management is mandatory when using the indirect permission
+	 * model. Treat any writable translation as writable-dirty to avoid
+	 * subsequent permission faults.
+	 */
+	if (prot & KVM_PGTABLE_PROT_W)
+		*attr |= KVM_PTE_LEAF_ATTR_LO_S2_DIRTY;
+
+	return 0;
+}
+
 static int stage2_set_xn_attr(enum kvm_pgtable_prot prot, kvm_pte_t *attr)
 {
 	bool px, ux;
@@ -696,6 +731,23 @@ static int stage2_set_xn_attr(enum kvm_pgtable_prot prot, kvm_pte_t *attr)
 
 	*attr &= ~KVM_PTE_LEAF_ATTR_HI_S2_XN;
 	*attr |= FIELD_PREP(KVM_PTE_LEAF_ATTR_HI_S2_XN, xn);
+	return 0;
+}
+
+static int stage2_set_direct_perms(enum kvm_pgtable_prot prot, kvm_pte_t *attr)
+{
+	int ret;
+
+	ret = stage2_set_xn_attr(prot, attr);
+	if (ret)
+		return ret;
+
+	if (prot & KVM_PGTABLE_PROT_R)
+		*attr |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R;
+
+	if (prot & KVM_PGTABLE_PROT_W)
+		*attr |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
+
 	return 0;
 }
 
@@ -724,15 +776,12 @@ static int stage2_set_prot_attr(struct kvm_pgtable *pgt, enum kvm_pgtable_prot p
 		attr = KVM_S2_MEMATTR(pgt, NORMAL);
 	}
 
-	r = stage2_set_xn_attr(prot, &attr);
+	if (kvm_s2pie_enabled())
+		r = stage2_set_indirect_perms(prot, &attr);
+	else
+		r = stage2_set_direct_perms(prot, &attr);
 	if (r)
 		return r;
-
-	if (prot & KVM_PGTABLE_PROT_R)
-		attr |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R;
-
-	if (prot & KVM_PGTABLE_PROT_W)
-		attr |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
 
 	if (!kvm_lpa2_is_enabled())
 		attr |= FIELD_PREP(KVM_PTE_LEAF_ATTR_LO_S2_SH, sh);
@@ -1357,26 +1406,36 @@ bool kvm_pgtable_stage2_test_clear_young(struct kvm_pgtable *pgt, u64 addr,
 int kvm_pgtable_stage2_relax_perms(struct kvm_pgtable *pgt, u64 addr,
 				   enum kvm_pgtable_prot prot, enum kvm_pgtable_walk_flags flags)
 {
-	kvm_pte_t xn = 0, set = 0, clr = 0;
+	kvm_pte_t mask, attr = 0, set = 0, clr = 0;
 	s8 level;
 	int ret;
 
 	if (prot & KVM_PTE_LEAF_ATTR_HI_SW)
 		return -EINVAL;
 
-	if (prot & KVM_PGTABLE_PROT_R)
-		set |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R;
-
-	if (prot & KVM_PGTABLE_PROT_W)
-		set |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
-
-	if (prot & KVM_PGTABLE_PROT_X) {
-		ret = stage2_set_xn_attr(prot, &xn);
+	if (kvm_s2pie_enabled()) {
+		ret = stage2_set_indirect_perms(prot, &attr);
 		if (ret)
 			return ret;
 
-		set |= xn & KVM_PTE_LEAF_ATTR_HI_S2_XN;
-		clr |= ~xn & KVM_PTE_LEAF_ATTR_HI_S2_XN;
+		mask = KVM_PTE_LEAF_ATTR_S2_PI_INDEX | KVM_PTE_LEAF_ATTR_LO_S2_DIRTY;
+		set = attr & mask;
+		clr = ~attr & mask;
+	} else {
+		if (prot & KVM_PGTABLE_PROT_R)
+			set |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R;
+
+		if (prot & KVM_PGTABLE_PROT_W)
+			set |= KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
+
+		if (prot & KVM_PGTABLE_PROT_X) {
+			ret = stage2_set_xn_attr(prot, &attr);
+			if (ret)
+				return ret;
+
+			set |= attr & KVM_PTE_LEAF_ATTR_HI_S2_XN;
+			clr |= ~attr & KVM_PTE_LEAF_ATTR_HI_S2_XN;
+		}
 	}
 
 	ret = stage2_update_leaf_attrs(pgt, addr, 1, set, clr, NULL, &level, flags);

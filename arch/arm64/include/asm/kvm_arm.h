@@ -262,6 +262,46 @@
 #define VTTBR_VMID_SHIFT  (UL(48))
 #define VTTBR_VMID_MASK(size) (_AT(u64, (1 << size) - 1) << VTTBR_VMID_SHIFT)
 
+#define S2PIR_NoAccess	(0b0000)
+#define S2PIR_MRO	(0b0010)
+#define S2PIR_MRO_TL1	(0b0011)
+#define S2PIR_WO	(0b0100)
+#define S2PIR_MRO_TL0	(0b0110)
+#define S2PIR_MRO_TL01	(0b0111)
+#define S2PIR_RO	(0b1000)
+#define S2PIR_RO_uX	(0b1001)
+#define S2PIR_RO_pX	(0b1010)
+#define S2PIR_RO_puX	(0b1011)
+#define S2PIR_RW	(0b1100)
+#define S2PIR_RW_uX	(0b1101)
+#define S2PIR_RW_pX	(0b1110)
+#define S2PIR_RW_puX	(0b1111)
+
+/*
+ * Use an identity mapping for PIIndex => Perm<m> fields. KVM only uses
+ * a subset of these permissions for itself, however the full dictionary
+ * is required to virtualize FEAT_S2PIE for an L1 hypervisor.
+ *
+ * PIIndex values of 1 and 5 are unused and available for future software
+ * use.
+ */
+#define S2PIR_PERM_PREP(sfx)	PIRx_ELx_PERM_PREP(S2PIR_##sfx, S2PIR_##sfx)
+#define S2PIR_PERMS (				\
+	S2PIR_PERM_PREP(NoAccess)	|	\
+	S2PIR_PERM_PREP(MRO)		|	\
+	S2PIR_PERM_PREP(MRO_TL1)	|	\
+	S2PIR_PERM_PREP(WO)		|	\
+	S2PIR_PERM_PREP(MRO_TL0)	|	\
+	S2PIR_PERM_PREP(MRO_TL01)	|	\
+	S2PIR_PERM_PREP(RO)		|	\
+	S2PIR_PERM_PREP(RO_uX)		|	\
+	S2PIR_PERM_PREP(RO_pX)		|	\
+	S2PIR_PERM_PREP(RO_puX)		|	\
+	S2PIR_PERM_PREP(RW)		|	\
+	S2PIR_PERM_PREP(RW_uX)		|	\
+	S2PIR_PERM_PREP(RW_pX)		|	\
+	S2PIR_PERM_PREP(RW_puX))
+
 /* Hyp System Trap Register */
 #define HSTR_EL2_T(x)	(1 << x)
 
