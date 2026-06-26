@@ -793,12 +793,9 @@ static int stage2_set_prot_attr(struct kvm_pgtable *pgt, enum kvm_pgtable_prot p
 	return 0;
 }
 
-enum kvm_pgtable_prot kvm_pgtable_stage2_pte_prot(kvm_pte_t pte)
+static enum kvm_pgtable_prot stage2_direct_pte_prot(kvm_pte_t pte)
 {
-	enum kvm_pgtable_prot prot = pte & KVM_PTE_LEAF_ATTR_HI_SW;
-
-	if (!kvm_pte_valid(pte))
-		return prot;
+	enum kvm_pgtable_prot prot = 0;
 
 	if (pte & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R)
 		prot |= KVM_PGTABLE_PROT_R;
@@ -818,6 +815,34 @@ enum kvm_pgtable_prot kvm_pgtable_stage2_pte_prot(kvm_pte_t pte)
 	default:
 		break;
 	}
+
+	return prot;
+}
+
+static enum kvm_pgtable_prot stage2_indirect_pte_prot(kvm_pte_t pte)
+{
+	u8 pi_index = kvm_pte_pi_index(pte);
+	u8 i;
+
+	for (i = 0; i < ARRAY_SIZE(stage2_prot_to_pi_index); i++) {
+		if (stage2_prot_to_pi_index[i] == pi_index)
+			return i;
+	}
+
+	return 0;
+}
+
+enum kvm_pgtable_prot kvm_pgtable_stage2_pte_prot(kvm_pte_t pte)
+{
+	enum kvm_pgtable_prot prot = pte & KVM_PTE_LEAF_ATTR_HI_SW;
+
+	if (!kvm_pte_valid(pte))
+		return prot;
+
+	if (kvm_s2pie_enabled())
+		prot |= stage2_indirect_pte_prot(pte);
+	else
+		prot |= stage2_direct_pte_prot(pte);
 
 	return prot;
 }

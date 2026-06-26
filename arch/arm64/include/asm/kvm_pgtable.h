@@ -117,6 +117,11 @@ typedef u64 kvm_pte_t;
 	FIELD_PREP(KVM_PTE_LEAF_ATTR_S2_PI_INDEX_1, (pi_index >> 1) & 0x1) |	\
 	FIELD_PREP(KVM_PTE_LEAF_ATTR_S2_PI_INDEX_0, pi_index & 0x1))
 
+#define kvm_pte_pi_index(pte) (						\
+	(FIELD_GET(KVM_PTE_LEAF_ATTR_S2_PI_INDEX_3_2, pte) << 2) |	\
+	(FIELD_GET(KVM_PTE_LEAF_ATTR_S2_PI_INDEX_1, pte) << 1) |	\
+	(FIELD_GET(KVM_PTE_LEAF_ATTR_S2_PI_INDEX_0, pte)))
+
 #define KVM_PTE_LEAF_ATTR_LO_S2_DIRTY		BIT(7)
 
 /* pKVM invalid pte encodings */
