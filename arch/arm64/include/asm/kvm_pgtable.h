@@ -30,7 +30,7 @@
 
 static inline bool kvm_s2pie_enabled(void)
 {
-	return false;
+	return cpus_have_final_cap(ARM64_HAS_S2PIE);
 }
 
 static inline u64 kvm_get_parange_max(void)

@@ -636,6 +636,9 @@ u64 kvm_get_vtcr(u64 mmfr0, u64 mmfr1, u32 phys_shift)
 	if (kvm_lpa2_is_enabled())
 		vtcr |= VTCR_EL2_DS;
 
+	if (kvm_s2pie_enabled())
+		vtcr |= VTCR_EL2_S2PIE;
+
 	/* Set the vmid bits */
 	vtcr |= (get_vmid_bits(mmfr1) == 16) ? VTCR_EL2_VS : 0;
 
