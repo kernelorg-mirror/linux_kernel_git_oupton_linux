@@ -26,7 +26,7 @@ struct kvm_ptdump_guest_state {
 	struct ptdump_pg_level	level[KVM_PGTABLE_MAX_LEVELS];
 };
 
-static const struct ptdump_prot_bits stage2_pte_bits[] = {
+static const struct ptdump_prot_bits stage2_direct_pte_bits[] = {
 	{
 		.mask	= PTE_VALID,
 		.val	= PTE_VALID,
@@ -79,6 +79,68 @@ static const struct ptdump_prot_bits stage2_pte_bits[] = {
 	},
 };
 
+static const char *stage2_indirect_perms[PIE_MASK + 1] = {
+	[0 ... PIE_MASK]	= "RSVD    ",
+	[S2PIR_NoAccess]	= "NoAccess",
+	[S2PIR_MRO]		= "MRO     ",
+	[S2PIR_MRO_TL1]		= "MRO-TL1 ",
+	[S2PIR_WO]		= "WO      ",
+	[S2PIR_MRO_TL0]		= "MRO-TL0 ",
+	[S2PIR_MRO_TL01]	= "MRO-TL01",
+	[S2PIR_RO]		= "RO      ",
+	[S2PIR_RO_uX]		= "RO+uX   ",
+	[S2PIR_RO_pX]		= "RO+pX   ",
+	[S2PIR_RO_puX]		= "RO+puX  ",
+	[S2PIR_RW]		= "RW      ",
+	[S2PIR_RW_uX]		= "RW+uX   ",
+	[S2PIR_RW_pX]		= "RW+pX   ",
+	[S2PIR_RW_puX]		= "RW+puX  ",
+};
+
+static const char *describe_indirect_perms(struct ptdump_pg_state *st,
+					   const struct ptdump_prot_bits *bits,
+					   ptval_t perms)
+{
+	u8 pi_index, perm;
+
+	pi_index = kvm_pte_pi_index(perms);
+	perm = (S2PIR_PERMS >> PIRx_ELx_PERM_SHIFT(pi_index)) & PIE_MASK;
+
+	return stage2_indirect_perms[perm];
+}
+
+static const struct ptdump_prot_bits stage2_indirect_pte_bits[] = {
+	{
+		.mask	= PTE_VALID,
+		.val	= PTE_VALID,
+		.set	= " ",
+		.clear	= "F",
+	},
+	{
+		.mask	= KVM_PTE_LEAF_ATTR_LO_S2_AF,
+		.val	= KVM_PTE_LEAF_ATTR_LO_S2_AF,
+		.set	= "AF",
+		.clear	= "  ",
+	},
+	{
+		.mask	= KVM_PTE_LEAF_ATTR_LO_S2_DIRTY,
+		.val	= KVM_PTE_LEAF_ATTR_LO_S2_DIRTY,
+		.set	= "D",
+		.clear	= " ",
+	},
+	{
+		.mask		= KVM_PTE_LEAF_ATTR_S2_PI_INDEX,
+		.describe	= describe_indirect_perms,
+	},
+	{
+		.mask	= PMD_TYPE_MASK,
+		.val	= PMD_TYPE_SECT,
+		.set	= "BLK",
+		.clear	= "   ",
+	},
+};
+
+
 static int kvm_ptdump_visitor(const struct kvm_pgtable_visit_ctx *ctx,
 			      enum kvm_pgtable_walk_flags visit)
 {
@@ -92,21 +154,31 @@ static int kvm_ptdump_visitor(const struct kvm_pgtable_visit_ctx *ctx,
 
 static int kvm_ptdump_build_levels(struct ptdump_pg_level *level, u32 start_lvl)
 {
+	const struct ptdump_prot_bits *bits;
+	size_t nr_descs;
 	u32 i;
 	u64 mask;
 
 	if (WARN_ON_ONCE(start_lvl >= KVM_PGTABLE_LAST_LEVEL))
 		return -EINVAL;
 
+	if (kvm_s2pie_enabled()) {
+		bits = stage2_indirect_pte_bits;
+		nr_descs = ARRAY_SIZE(stage2_indirect_pte_bits);
+	} else {
+		bits = stage2_direct_pte_bits;
+		nr_descs = ARRAY_SIZE(stage2_direct_pte_bits);
+	}
+
 	mask = 0;
-	for (i = 0; i < ARRAY_SIZE(stage2_pte_bits); i++)
-		mask |= stage2_pte_bits[i].mask;
+	for (i = 0; i < nr_descs; i++)
+		mask |= bits[i].mask;
 
 	for (i = start_lvl; i < KVM_PGTABLE_MAX_LEVELS; i++) {
 		snprintf(level[i].name, sizeof(level[i].name), "%u", i);
 
-		level[i].num	= ARRAY_SIZE(stage2_pte_bits);
-		level[i].bits	= stage2_pte_bits;
+		level[i].num	= nr_descs;
+		level[i].bits	= bits;
 		level[i].mask	= mask;
 	}
 
