@@ -147,9 +147,12 @@ static void dump_prot(struct ptdump_pg_state *st, const struct ptdump_prot_bits 
 	unsigned i;
 
 	for (i = 0; i < num; i++, bits++) {
+		ptval_t prot = st->current_prot & bits->mask;
 		const char *s;
 
-		if ((st->current_prot & bits->mask) == bits->val)
+		if (bits->describe)
+			s = bits->describe(st, bits, prot);
+		else if (prot == bits->val)
 			s = bits->set;
 		else
 			s = bits->clear;

@@ -25,9 +25,14 @@ struct ptdump_info {
 	unsigned long			base_addr;
 };
 
+struct ptdump_pg_state;
+
 struct ptdump_prot_bits {
 	ptval_t	mask;
 	ptval_t	val;
+	const char *	(*describe)(struct ptdump_pg_state *,
+				    const struct ptdump_prot_bits *,
+				    ptval_t);
 	const char	*set;
 	const char	*clear;
 };
