@@ -917,6 +917,7 @@ void kvm_vcpu_put_hw_mmu(struct kvm_vcpu *vcpu)
  */
 int kvm_s2_handle_perm_fault(struct kvm_vcpu *vcpu, struct kvm_s2_trans *trans)
 {
+	bool write_fault = kvm_is_write_fault(vcpu);
 	bool forward_fault = false;
 
 	trans->esr = 0;
@@ -924,14 +925,39 @@ int kvm_s2_handle_perm_fault(struct kvm_vcpu *vcpu, struct kvm_s2_trans *trans)
 	if (!kvm_vcpu_trap_is_permission_fault(vcpu))
 		return 0;
 
-	if (kvm_vcpu_trap_is_iabt(vcpu)) {
+	/*
+	 * S1PTW permission faults are a pain to deal with, owing to the fact that
+	 * the architecture sucks and there's insufficient syndrome information to
+	 * determine if the access failed for read or write permissions. We can still
+	 * infer it based on the behavior of our pseudo-TLB (i.e. the KVM MMU):
+	 *
+	 *  - S1PTW translation faults are treated as read accesses, meaning that
+	 *    the most relaxed resulting translation is read-only. The L1 hypervisor
+	 *    could prevent read accesses in the nested stage-2. Since all TTW accesses
+	 *    require at least read permission, we can detect this by unconditionally
+	 *    checking read permission in the nested stage-2.
+	 *
+	 *  - After establishing that this vCPU observed a read-only translation, we
+	 *    can infer that the access failed for lacking write permission due to
+	 *    either the nested stage-2 or KVM. Evaluate the write permission of the
+	 *    nested stage-2.
+	 *
+	 *  - Once the nested stage-2 permission checks have passed the permission
+	 *    fault must've been due to something downstream; The rest of KVM's
+	 *    fault handling can safely short-circuit to a write access at this point
+	 *    and potentially treat the access as unsupported at the virtual endpoint
+	 *    (e.g. unsupported atomic access to RO memslot).
+	 */
+	if (kvm_vcpu_abt_iss1tw(vcpu)) {
+		forward_fault = !trans->readable;
+		if (write_fault)
+			forward_fault |= !trans->writable;
+	} else if (kvm_vcpu_trap_is_iabt(vcpu)) {
 		if (vcpu_mode_priv(vcpu))
 			forward_fault = !kvm_s2_trans_exec_el1(vcpu->kvm, trans);
 		else
 			forward_fault = !kvm_s2_trans_exec_el0(vcpu->kvm, trans);
 	} else {
-		bool write_fault = kvm_is_write_fault(vcpu);
-
 		forward_fault = ((write_fault && !trans->writable) ||
 				 (!write_fault && !trans->readable));
 	}
