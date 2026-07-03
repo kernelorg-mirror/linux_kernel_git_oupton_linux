@@ -491,8 +491,12 @@ static inline bool kvm_is_write_fault(struct kvm_vcpu *vcpu)
 		 * to map the page containing the PT (read only at
 		 * first), then a permission fault to allow the flags
 		 * to be set.
+		 *
+		 * Condition this on the effective value of HA being 1 to
+		 * partially cope with nested, as it is possible the L1 hypervisor
+		 * has not granted read permissions in the shadow stage-2.
 		 */
-		return kvm_vcpu_trap_is_permission_fault(vcpu);
+		return kvm_vcpu_trap_is_permission_fault(vcpu) && effective_tcr_ha(vcpu);
 	}
 
 	if (kvm_vcpu_trap_is_iabt(vcpu))

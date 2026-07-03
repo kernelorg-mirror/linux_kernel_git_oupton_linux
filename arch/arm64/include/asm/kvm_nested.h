@@ -409,4 +409,6 @@ u16 get_asid_by_regime(struct kvm_vcpu *vcpu, enum trans_regime regime);
 
 int __kvm_at_swap_desc(struct kvm *kvm, gpa_t ipa, u64 old, u64 new);
 
+bool effective_tcr_ha(struct kvm_vcpu *vcpu);
+
 #endif /* __ARM64_KVM_NESTED_H */
