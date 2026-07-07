@@ -911,9 +911,6 @@ void kvm_vcpu_reload_pmu(struct kvm_vcpu *vcpu)
 
 int kvm_arm_pmu_v3_enable(struct kvm_vcpu *vcpu)
 {
-	if (!vcpu->kvm->arch.arm_pmu)
-		return -EINVAL;
-
 	if (!vcpu->arch.pmu.created)
 		return -EINVAL;
 
@@ -942,6 +939,10 @@ int kvm_arm_pmu_v3_enable(struct kvm_vcpu *vcpu)
 
 static int kvm_arm_pmu_v3_init(struct kvm_vcpu *vcpu)
 {
+	/* Only possible when using KVM_ARM_VCPU_PMU_V3_STRICT */
+	if (!vcpu->kvm->arch.arm_pmu)
+		return -ENXIO;
+
 	if (irqchip_in_kernel(vcpu->kvm)) {
 		int ret;
 
@@ -1201,6 +1202,9 @@ int kvm_arm_pmu_v3_set_attr(struct kvm_vcpu *vcpu, struct kvm_device_attr *attr)
 
 		if (kvm_vm_has_ran_once(kvm))
 			return -EBUSY;
+
+		if (!kvm->arch.arm_pmu)
+			return -ENXIO;
 
 		if (!kvm->arch.pmu_filter) {
 			kvm->arch.pmu_filter = bitmap_alloc(nr_events, GFP_KERNEL_ACCOUNT);

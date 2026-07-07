@@ -3516,10 +3516,16 @@ Possible features:
 	- KVM_ARM_VCPU_PMU_V3: Emulate PMUv3 for the CPU.
 	  Depends on KVM_CAP_ARM_PMU_V3.
 	- KVM_ARM_VCPU_PMU_V3_STRICT: Enable strict PMUv3 UAPI.
-	  Requires KVM_ARM_VCPU_PMU_V3. If set, KVM does not create a default
-	  PMU; userspace must select a PMU implementation with
-	  KVM_ARM_VCPU_PMU_V3_SET_PMU before the first KVM_RUN. The selected
-	  PMU exposes the SLOTS field of its PMMIR_EL1 register to the guest.
+	  Requires KVM_ARM_VCPU_PMU_V3_STRICT; KVM_ARM_VCPU_PMU_V3 must also
+          be set. When enabled:
+
+           * Userspace must explicitly select a PMU implementation before
+             initializing the PMU or configuring a PMU event filter
+
+           * If the PMU implements FEAT_PMUv3p4, PMMIR_EL1.SLOTS provides the
+             hardware value of the underlying implementation
+
+           * Writes to PMCR_EL0.N via KVM_SET_ONE_REG are ignored
 
 	- KVM_ARM_VCPU_PTRAUTH_ADDRESS: Enables Address Pointer authentication
 	  for arm64 only.
