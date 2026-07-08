@@ -1196,8 +1196,8 @@ static int its_wait_for_range_completion(struct its_node *its,
 
 		count--;
 		if (!count) {
-			pr_err_ratelimited("ITS queue timeout (%llu %llu)\n",
-					   to_idx, linear_idx);
+			pr_err_ratelimited("ITS@%pa: queue timeout (%llu %llu)\n",
+					   &its->phys_base, to_idx, linear_idx);
 			return -1;
 		}
 		prev_idx = rd_idx;
