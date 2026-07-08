@@ -341,27 +341,29 @@ static inline void __iomem *gic_dist_base(struct irq_data *d)
 	}
 }
 
-static void gic_do_wait_for_rwp(void __iomem *base, u32 bit)
-{
-	u32 val;
-	int ret;
-
-	ret = readl_relaxed_poll_timeout_atomic(base + GICD_CTLR, val, !(val & bit),
-						1, USEC_PER_SEC);
-	if (ret == -ETIMEDOUT)
-		pr_err_ratelimited("RWP timeout, gone fishing\n");
-}
+#define gic_do_wait_for_rwp(base, phys_base, gicx)				\
+do {										\
+	u32 val;								\
+	int ret;								\
+										\
+	ret = readl_relaxed_poll_timeout_atomic((base) + gicx##_CTLR, val,	\
+						!(val & gicx##_CTLR_RWP),	\
+						1, USEC_PER_SEC);		\
+	if (ret == -ETIMEDOUT)							\
+		pr_err_ratelimited(#gicx"@%pa: RWP timeout, gone fishing\n",	\
+				   (phys_base));				\
+} while (0)
 
 /* Wait for completion of a distributor change */
 static void gic_dist_wait_for_rwp(void)
 {
-	gic_do_wait_for_rwp(gic_data.dist_base, GICD_CTLR_RWP);
+	gic_do_wait_for_rwp(gic_data.dist_base, &gic_data.dist_phys_base, GICD);
 }
 
 /* Wait for completion of a redistributor change */
 static void gic_redist_wait_for_rwp(void)
 {
-	gic_do_wait_for_rwp(gic_data_rdist_rd_base(), GICR_CTLR_RWP);
+	gic_do_wait_for_rwp(gic_data_rdist_rd_base(), &gic_data_rdist()->phys_base, GICR);
 }
 
 static void gic_enable_redist(bool enable)
