@@ -2022,13 +2022,26 @@ static u32 compute_next_devid_offset(struct list_head *h,
 	return min_t(u32, next_offset, VITS_DTE_MAX_DEVID_OFFSET);
 }
 
+static struct its_ite *find_next_valid_ite(struct list_head *h, struct its_ite *ite)
+{
+	while (!list_is_last(&ite->ite_list, h)) {
+		ite = list_next_entry(ite, ite_list);
+		if (ite->collection)
+			return ite;
+	}
+
+	return NULL;
+}
+
 static u32 compute_next_eventid_offset(struct list_head *h, struct its_ite *ite)
 {
 	struct its_ite *next;
 	u32 next_offset;
 
-	if (list_is_last(&ite->ite_list, h))
+	next = find_next_valid_ite(h, ite);
+	if (!next)
 		return 0;
+
 	next = list_next_entry(ite, ite_list);
 	next_offset = next->event_id - ite->event_id;
 
@@ -2213,6 +2226,13 @@ static int vgic_its_save_itt(struct vgic_its *its, struct its_device *device)
 		 */
 		if (ite->irq->hw && !kvm_vgic_global_state.has_gicv4_1)
 			return -EACCES;
+
+		/*
+		 * The collection entry disappeared and we don't currently
+		 * track the ICID in the ITE. Although we should.
+		 */
+		if (!ite->collection)
+			continue;
 
 		ret = vgic_its_save_ite(its, device, ite, gpa);
 		if (ret)
