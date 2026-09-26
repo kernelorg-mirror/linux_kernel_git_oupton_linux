@@ -1023,15 +1023,25 @@ void kvm_arm_halt_guest(struct kvm *kvm)
 	kvm_make_all_cpus_request(kvm, KVM_REQ_SLEEP);
 }
 
+void kvm_halt_vcpu(struct kvm_vcpu *vcpu)
+{
+	atomic_inc(&vcpu->arch.pause);
+	kvm_make_request_and_kick(KVM_REQ_SLEEP, vcpu);
+}
+
+void kvm_resume_vcpu(struct kvm_vcpu *vcpu)
+{
+	if (atomic_dec_and_test(&vcpu->arch.pause))
+		__kvm_vcpu_wake_up(vcpu);
+}
+
 void kvm_arm_resume_guest(struct kvm *kvm)
 {
 	unsigned long i;
 	struct kvm_vcpu *vcpu;
 
-	kvm_for_each_vcpu(i, vcpu, kvm) {
-		if (atomic_dec_and_test(&vcpu->arch.pause))
-			__kvm_vcpu_wake_up(vcpu);
-	}
+	kvm_for_each_vcpu(i, vcpu, kvm)
+		kvm_resume_vcpu(vcpu);
 }
 
 static void kvm_vcpu_sleep(struct kvm_vcpu *vcpu)
