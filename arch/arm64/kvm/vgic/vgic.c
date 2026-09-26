@@ -739,6 +739,97 @@ int kvm_vgic_set_owner(struct kvm_vcpu *vcpu, unsigned int intid, void *owner)
 	return ret;
 }
 
+/*
+ * Updates the affinity of the specified IRQ to the new vCPU (which may be NULL)
+ * and handles the tricky business of moving the IRQ between AP lists if
+ * necessary.
+ */
+static void __vgic_update_irq_affinity(struct kvm *kvm, struct vgic_irq *irq,
+				       struct kvm_vcpu *old, struct kvm_vcpu *new,
+				       u64 mpidr)
+{
+	struct kvm_vcpu *tmp;
+	unsigned long flags;
+	bool pruned = false;
+
+retry:
+	scoped_guard(raw_spinlock_irqsave, &irq->irq_lock) {
+		/*
+		 * We could be filtering migrations by source vCPU (e.g. ITS
+		 * MOVALL command). Bail if the IRQ is affined somewhere we
+		 * don't expect.
+		 */
+		if (old && irq->target_vcpu != old)
+			return;
+
+		/*
+		 * The IRQ we're trying to migrate isn't on any AP list, meaning
+		 * all we need to do is update the target and bail.
+		 */
+		if (!irq->vcpu) {
+			irq->mpidr = mpidr;
+			irq->target_vcpu = new;
+			return;
+		}
+
+		/*
+		 * If not, the IRQ exists on another vCPU. Choose our target
+		 * and set phasers to stun: we need the old vCPU to synchronize
+		 * the LR state back into the AP list. Prepare to drop the
+		 * irq_lock so we may reacquire it behind the ap_list_lock.
+		 */
+		tmp = irq->vcpu;
+	}
+
+	/* Fire! */
+	kvm_halt_vcpu(tmp);
+
+	scoped_guard(raw_spinlock_irqsave, &tmp->arch.vgic_cpu.ap_list_lock) {
+		scoped_guard(raw_spinlock, &irq->irq_lock) {
+			/*
+			 * The IRQ could've been moved to another AP list after
+			 * dropping the irq_lock. Make sure it's where we expect
+			 * it to be, remove from the list and retain the implied
+			 * reference until we queue it on the new vCPU.
+			 */
+			if (irq->vcpu == tmp) {
+				list_del(&irq->ap_list);
+				irq->vcpu = NULL;
+				irq->mpidr = mpidr;
+				irq->target_vcpu = new;
+				pruned = true;
+			}
+		}
+	}
+
+	/*
+	 * Release the stunned vCPU and retry the whole operation if we weren't
+	 * able to move the IRQ off of the old AP list.
+	 */
+	kvm_resume_vcpu(tmp);
+	if (!pruned)
+		goto retry;
+
+	/*
+	 * Finally, queue the IRQ onto the destination AP list (if there is one)
+	 * and drop the retained reference.
+	 */
+	raw_spin_lock_irqsave(&irq->irq_lock, flags);
+	vgic_queue_irq_unlock(kvm, irq, flags);
+	vgic_put_irq(kvm, irq);
+}
+
+void vgic_update_spi_affinity(struct kvm *kvm, struct vgic_irq *irq, u64 mpidr)
+{
+	__vgic_update_irq_affinity(kvm, irq, NULL, kvm_mpidr_to_vcpu(kvm, mpidr), mpidr);
+}
+
+void vgic_update_lpi_affinity(struct kvm *kvm, struct vgic_irq *irq, struct kvm_vcpu *old,
+			      struct kvm_vcpu *new)
+{
+	__vgic_update_irq_affinity(kvm, irq, old, new, 0);
+}
+
 /**
  * vgic_prune_ap_list - Remove non-relevant interrupts from the list
  *
@@ -755,102 +846,38 @@ static void vgic_prune_ap_list(struct kvm_vcpu *vcpu)
 
 	DEBUG_SPINLOCK_BUG_ON(!irqs_disabled());
 
-retry:
 	raw_spin_lock(&vgic_cpu->ap_list_lock);
 
 	list_for_each_entry_safe(irq, tmp, &vgic_cpu->ap_list_head, ap_list) {
-		struct kvm_vcpu *target_vcpu, *vcpuA, *vcpuB;
-		bool target_vcpu_needs_kick = false;
-
-		raw_spin_lock(&irq->irq_lock);
+		struct kvm_vcpu *target_vcpu;
 
 		BUG_ON(vcpu != irq->vcpu);
 
-		target_vcpu = vgic_target_oracle(irq);
-
-		if (!target_vcpu) {
-			/*
-			 * We don't need to process this interrupt any
-			 * further, move it off the list.
-			 */
-			list_del(&irq->ap_list);
-			irq->vcpu = NULL;
-			raw_spin_unlock(&irq->irq_lock);
-
-			/*
-			 * This vgic_put_irq call matches the
-			 * vgic_get_irq_ref in vgic_queue_irq_unlock,
-			 * where we added the LPI to the ap_list. As
-			 * we remove the irq from the list, we drop
-			 * also drop the refcount.
-			 */
-			deleted_lpis |= vgic_put_irq_norelease(vcpu->kvm, irq);
-			continue;
-		}
-
-		if (target_vcpu == vcpu) {
-			/* We're on the right CPU */
-			raw_spin_unlock(&irq->irq_lock);
-			continue;
-		}
-
-		/*
-		 * This interrupt looks like it has to be migrated,
-		 * make sure it is kept alive while locks are dropped.
-		 */
-		vgic_get_irq_ref(irq);
-
-		raw_spin_unlock(&irq->irq_lock);
-		raw_spin_unlock(&vgic_cpu->ap_list_lock);
-
-		/*
-		 * Ensure locking order by always locking the smallest
-		 * ID first.
-		 */
-		if (vcpu->vcpu_id < target_vcpu->vcpu_id) {
-			vcpuA = vcpu;
-			vcpuB = target_vcpu;
-		} else {
-			vcpuA = target_vcpu;
-			vcpuB = vcpu;
-		}
-
-		raw_spin_lock(&vcpuA->arch.vgic_cpu.ap_list_lock);
-		raw_spin_lock_nested(&vcpuB->arch.vgic_cpu.ap_list_lock,
-				      SINGLE_DEPTH_NESTING);
 		raw_spin_lock(&irq->irq_lock);
 
+		target_vcpu = vgic_target_oracle(irq);
+		if (target_vcpu) {
+			KVM_BUG_ON(target_vcpu != vcpu, vcpu->kvm);
+			raw_spin_unlock(&irq->irq_lock);
+			continue;
+		}
+
 		/*
-		 * If the interrupt is still ours and its affinity has
-		 * been preserved, move it around. Otherwise, it means
-		 * things have changed while the interrupt was unlocked
-		 * (it may even have been taken off the list with its
-		 * affinity left untouched), and we need to replay this.
-		 *
-		 * In all cases, we cannot trust the list not to have
-		 * changed, so we restart from the beginning.
+		 * We don't need to process this interrupt any
+		 * further, move it off the list.
 		 */
-		if (irq->vcpu == vcpu && target_vcpu == vgic_target_oracle(irq)) {
-			struct vgic_cpu *new_cpu = &target_vcpu->arch.vgic_cpu;
-
-			list_del(&irq->ap_list);
-			irq->vcpu = target_vcpu;
-			list_add_tail(&irq->ap_list, &new_cpu->ap_list_head);
-			target_vcpu_needs_kick = true;
-		}
-
+		list_del(&irq->ap_list);
+		irq->vcpu = NULL;
 		raw_spin_unlock(&irq->irq_lock);
-		raw_spin_unlock(&vcpuB->arch.vgic_cpu.ap_list_lock);
-		raw_spin_unlock(&vcpuA->arch.vgic_cpu.ap_list_lock);
 
+		/*
+		 * This vgic_put_irq call matches the
+		 * vgic_get_irq_ref in vgic_queue_irq_unlock,
+		 * where we added the LPI to the ap_list. As
+		 * we remove the irq from the list, we drop
+		 * also drop the refcount.
+		 */
 		deleted_lpis |= vgic_put_irq_norelease(vcpu->kvm, irq);
-
-		if (target_vcpu_needs_kick) {
-			kvm_make_request(KVM_REQ_IRQ_PENDING, target_vcpu);
-			kvm_vcpu_kick(target_vcpu);
-		}
-
-		goto retry;
 	}
 
 	/*

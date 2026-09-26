@@ -241,7 +241,7 @@ static void vgic_mmio_write_irouter(struct kvm_vcpu *vcpu,
 {
 	int intid = VGIC_ADDR_TO_INTID(addr, 64);
 	struct vgic_irq *irq;
-	unsigned long flags;
+	u64 mpidr;
 
 	/* The upper word is WI for us since we don't implement Aff3. */
 	if (addr & 4)
@@ -252,13 +252,9 @@ static void vgic_mmio_write_irouter(struct kvm_vcpu *vcpu,
 	if (!irq)
 		return;
 
-	raw_spin_lock_irqsave(&irq->irq_lock, flags);
-
 	/* We only care about and preserve Aff0, Aff1 and Aff2. */
-	irq->mpidr = val & GENMASK(23, 0);
-	irq->target_vcpu = kvm_mpidr_to_vcpu(vcpu->kvm, irq->mpidr);
-
-	raw_spin_unlock_irqrestore(&irq->irq_lock, flags);
+	mpidr = val & GENMASK(23, 0);
+	vgic_update_spi_affinity(vcpu->kvm, irq, mpidr);
 	vgic_put_irq(vcpu->kvm, irq);
 }
 

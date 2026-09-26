@@ -325,13 +325,10 @@ static int update_affinity(struct vgic_irq *irq,
 	struct its_vlpi_map map;
 	int ret;
 
+	/* Must be called outside of @irq->irq_lock */
+	vgic_update_lpi_affinity(vcpu->kvm, irq, from_vcpu, vcpu);
 	guard(raw_spinlock_irqsave)(&irq->irq_lock);
-	if (from_vcpu && irq->target_vcpu != from_vcpu)
-		return 0;
-
-	irq->target_vcpu = vcpu;
-
-	if (!irq->hw)
+	if (!(irq->target_vcpu == vcpu && irq->hw))
 		return 0;
 
 	ret = its_get_vlpi(irq->host_irq, &map);
