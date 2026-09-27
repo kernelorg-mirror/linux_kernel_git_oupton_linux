@@ -26,6 +26,8 @@ struct gic_common_ops {
 	bool (*gic_irq_get_pending)(u32 intid);
 	void (*gic_irq_set_config)(u32 intid, bool is_edge);
 	void (*gic_irq_set_group)(u32 intid, bool group);
+	void (*gic_set_irouter)(unsigned int intid, u64 affinity);
+	u64 (*gic_get_irouter)(unsigned int intid);
 };
 
 extern const struct gic_common_ops gicv3_ops;

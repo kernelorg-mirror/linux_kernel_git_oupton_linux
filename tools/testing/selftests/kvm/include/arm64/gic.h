@@ -58,6 +58,8 @@ void gic_irq_clear_pending(unsigned int intid);
 bool gic_irq_get_pending(unsigned int intid);
 void gic_irq_set_config(unsigned int intid, bool is_edge);
 void gic_irq_set_group(unsigned int intid, bool group);
+void gic_set_irouter(unsigned int intid, u64 affinity);
+u64 gic_get_irouter(unsigned int intid);
 
 void gic_rdist_enable_lpis(gpa_t cfg_table, size_t cfg_table_size,
 			   gpa_t pend_table);

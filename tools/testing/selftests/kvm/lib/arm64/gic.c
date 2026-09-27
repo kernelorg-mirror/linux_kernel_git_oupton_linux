@@ -161,3 +161,16 @@ void gic_irq_set_group(unsigned int intid, bool group)
 	GUEST_ASSERT(gic_common_ops);
 	gic_common_ops->gic_irq_set_group(intid, group);
 }
+
+void gic_set_irouter(unsigned int intid, u64 affinity)
+{
+	GUEST_ASSERT(gic_common_ops);
+	gic_common_ops->gic_set_irouter(intid, affinity);
+}
+
+u64 gic_get_irouter(unsigned int intid)
+{
+	GUEST_ASSERT(gic_common_ops);
+	return gic_common_ops->gic_get_irouter(intid);
+}
+

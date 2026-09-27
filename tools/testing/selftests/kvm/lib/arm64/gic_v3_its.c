@@ -262,3 +262,27 @@ void its_send_sync_cmd(void *cmdq_base, u32 vcpu_id)
 
 	its_send_cmd(cmdq_base, &cmd);
 }
+
+void its_send_movi_cmd(void *cmdq_base, u32 device_id, u32 event_id, u32 collection_id)
+{
+	struct its_cmd_block cmd = {};
+
+	its_encode_cmd(&cmd, GITS_CMD_MOVI);
+	its_encode_devid(&cmd, device_id);
+	its_encode_event_id(&cmd, event_id);
+	its_encode_collection(&cmd, collection_id);
+
+	its_send_cmd(cmdq_base, &cmd);
+}
+
+void its_send_int_cmd(void *cmdq_base, u32 device_id, u32 event_id)
+{
+	struct its_cmd_block cmd = {};
+
+	its_encode_cmd(&cmd, GITS_CMD_INT);
+	its_encode_devid(&cmd, device_id);
+	its_encode_event_id(&cmd, event_id);
+
+	its_send_cmd(cmdq_base, &cmd);
+}
+

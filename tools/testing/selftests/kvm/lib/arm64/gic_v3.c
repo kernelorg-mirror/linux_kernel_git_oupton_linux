@@ -403,6 +403,18 @@ static void gicv3_init(unsigned int nr_cpus)
 	gicv3_dist_init();
 }
 
+static void gicv3_set_irouter(unsigned int intid, u64 affinity)
+{
+	GUEST_ASSERT(get_intid_range(intid) == SPI_RANGE);
+	writeq_relaxed(affinity, GICD_BASE_GVA + GICD_IROUTER + (8 * intid));
+}
+
+static u64 gicv3_get_irouter(unsigned int intid)
+{
+	GUEST_ASSERT(get_intid_range(intid) == SPI_RANGE);
+	return readq_relaxed(GICD_BASE_GVA + GICD_IROUTER + (8 * intid));
+}
+
 const struct gic_common_ops gicv3_ops = {
 	.gic_init = gicv3_init,
 	.gic_cpu_init = gicv3_cpu_init,
@@ -422,6 +434,8 @@ const struct gic_common_ops gicv3_ops = {
 	.gic_irq_get_pending = gicv3_irq_get_pending,
 	.gic_irq_set_config = gicv3_irq_set_config,
 	.gic_irq_set_group = gicv3_set_group,
+	.gic_set_irouter = gicv3_set_irouter,
+	.gic_get_irouter = gicv3_get_irouter,
 };
 
 void gic_rdist_enable_lpis(gpa_t cfg_table, size_t cfg_table_size,
