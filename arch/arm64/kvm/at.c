@@ -1662,26 +1662,79 @@ int __kvm_at_s12(struct kvm_vcpu *vcpu, u32 op, u64 vaddr)
  * set. The rest of the wi and wr should be 0-initialised.
  */
 int __kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
-		       struct s1_walk_result *wr, u64 va)
+		       struct s1_walk_result *s12wr, struct s1_walk_result *s1wr,
+		       struct kvm_s2_trans *s2wr, u64 va)
 {
 	int ret;
 
-	ret = setup_s1_walk(vcpu, wi, wr, va);
+	ret = setup_s1_walk(vcpu, wi, s1wr, va);
 	if (ret)
-		return ret;
+		goto fail_s1;
 
-	if (wr->level == S1_MMU_DISABLED) {
-		wr->ur = wr->uw = wr->ux = true;
-		wr->pr = wr->pw = wr->px = true;
+	if (s1wr->level == S1_MMU_DISABLED) {
+		s1wr->ur = s1wr->uw = s1wr->ux = true;
+		s1wr->pr = s1wr->pw = s1wr->px = true;
 	} else {
-		ret = walk_s1(vcpu, wi, wr, va);
+		ret = walk_s1(vcpu, wi, s1wr, va);
 		if (ret)
-			return ret;
+			goto fail_s1;
 
-		compute_s1_permissions(vcpu, wi, wr);
+		compute_s1_permissions(vcpu, wi, s1wr);
 	}
 
+	if (wi->regime != TR_EL10) {
+		*s12wr = *s1wr;
+		return 0;
+	}
+
+	if (!(vcpu_read_sys_reg(vcpu, HCR_EL2) & (HCR_VM | HCR_DC))) {
+		*s2wr = (struct kvm_s2_trans) {
+			.output		= s1wr->pa,
+			.writable	= true,
+			.readable	= true,
+			/* XN[1:0] = 0b00 implies uX, pX */
+			.desc		= 0,
+		};
+	} else {
+		ret = kvm_walk_nested_s2(vcpu, s1wr->pa, s2wr);
+		if (ret) {
+			*s12wr = (struct s1_walk_result) {
+				.fst	= s2wr->esr & ESR_ELx_FSC,
+				.ptw	= false,
+				.s2	= true,
+				.failed	= true,
+			};
+
+			return ret;
+		}
+	}
+
+	*s12wr = *s1wr;
+	s12wr->pa = s2wr->output;
+
+	if (!kvm_s2_trans_readable(s2wr))
+		s12wr->ur = s12wr->pr = false;
+	if (!kvm_s2_trans_writable(s2wr))
+		s12wr->uw = s12wr->pw = false;
+	if (!kvm_s2_trans_exec_el0(vcpu->kvm, s2wr))
+		s12wr->ux = false;
+	if (!kvm_s2_trans_exec_el1(vcpu->kvm, s2wr))
+		s12wr->px = false;
+
 	return 0;
+
+fail_s1:
+	*s12wr = *s1wr;
+	return ret;
+}
+
+int kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
+		     struct s1_walk_result *wr, u64 va)
+{
+	struct s1_walk_result s1wr = {};
+	struct kvm_s2_trans s2wr = {};
+
+	return __kvm_translate_va(vcpu, wi, wr, &s1wr, &s2wr, va);
 }
 
 struct desc_match {

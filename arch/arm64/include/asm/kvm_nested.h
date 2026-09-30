@@ -417,7 +417,10 @@ static inline bool s1_walk_translated(struct s1_walk_result *wr)
 }
 
 int __kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
-		       struct s1_walk_result *wr, u64 va);
+		       struct s1_walk_result *s12wr, struct s1_walk_result *s1wr,
+		       struct kvm_s2_trans *s2wr, u64 va);
+int kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
+		     struct s1_walk_result *wr, u64 va);
 int __kvm_find_s1_desc_level(struct kvm_vcpu *vcpu, u64 va, u64 ipa,
 			     int *level);
 
