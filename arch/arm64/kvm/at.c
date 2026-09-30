@@ -1924,3 +1924,69 @@ int __kvm_at_swap_desc(struct kvm *kvm, gpa_t ipa, u64 old, u64 new)
 	mark_page_dirty_in_slot(kvm, slot, gfn);
 	return 0;
 }
+
+bool dc_vac_check_s1_permissions(struct kvm_vcpu *vcpu, u32 op,
+				 struct s1_walk_result *wr)
+{
+	bool write = vcpu_mode_priv(vcpu) ? wr->pw : wr->uw;
+
+	if (dc_vac_needs_s1_write_permission(vcpu, op) && !write) {
+		kvm_inject_cmo_dabt(...);
+		return false;
+	}
+
+	if (!vcpu_mode_priv(vcpu) && wr->ur)
+		return true;
+
+	kvm_inject_cmo_dabt(...);
+	return false;
+}
+
+bool kvm_handle_dc_vac(struct kvm_vcpu *vcpu, u32 op, u64 va)
+{
+	struct s1_walk_info s12wr = {}, s1wr = {};
+	struct kvm_s2_trans s2wr = {};
+	struct s1_walk_info wi = {
+		.regime	= vcpu_trans_regime(vcpu),
+		.as_el0	= !vcpu_mode_priv(vcpu),
+	};
+	struct vm_area_struct *vma;
+	unsigned long hva;
+	bool writable;
+	u64 gfn;
+	int ret;
+
+	guard(srcu)(&vcpu->kvm->srcu);
+
+	ret = __kvm_translate_va(vcpu, &wi, &s12wr, &s1wr, &s2wr, va);
+	if (ret == -EAGAIN)
+		return false;
+	if (ret) {
+		kvm_inject_cmo_dabt(...);
+		return false;
+	}
+
+	if (!dc_vac_check_s1_permissions(vcpu, op, s1wr))
+		return false;
+	if (!dc_vac_check_s2_permissions(vcpu, op, s2wr))
+		return false;
+
+	gfn = s12wr->pa >> PAGE_SHIFT;
+	hva = gfn_to_hva_prot(vcpu->kvm, gfn, &writable);
+	if (kvm_is_error_hva(hva)) {
+		kvm_inject_cmo_dabt(...);
+		return false;
+	}
+
+	hva += offset_in_page(s12wr->pa);
+
+	guard(mmap_read_lock)();
+	vma = vma_lookup(current->mm, hva);
+	if (unlikely(!vma) || !kvm_vma_is_cacheable(vma)) {
+		kvm_inject_cmo_dabt(...);
+		return false;
+	}
+
+
+}
+
