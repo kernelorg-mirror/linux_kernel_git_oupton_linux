@@ -1762,22 +1762,68 @@ int __kvm_at_s12(struct kvm_vcpu *vcpu, u32 op, u64 vaddr)
  * set. The rest of the wi and wr should be 0-initialised.
  */
 int __kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
-		       struct s1_walk_result *wr, struct kvm_walk_access *access)
+		       struct s1_walk_result *s12wr, struct s1_walk_result *s1wr,
+		       struct kvm_s2_trans *s2wr, struct kvm_walk_access *access)
 {
+	struct kvm_walk_access s2_access;
 	int ret;
 
-	ret = setup_s1_walk(vcpu, wi, wr, access->ia);
-	if (ret)
+	ret = setup_s1_walk(vcpu, wi, s1wr, access->ia);
+	if (ret) {
+		*s12wr = *s1wr;
 		return ret;
+	}
 
-	if (wr->level == S1_MMU_DISABLED) {
-		wr->ur = wr->uw = wr->ux = true;
-		wr->pr = wr->pw = wr->px = true;
-		wr->dirty = true;
+	guard(srcu)(&vcpu->kvm->srcu);
+
+	if (s1wr->level == S1_MMU_DISABLED) {
+		s1wr->ur = s1wr->uw = s1wr->ux = true;
+		s1wr->pr = s1wr->pw = s1wr->px = true;
+		s1wr->dirty = true;
+	} else {
+		ret = walk_s1(vcpu, wi, s1wr, access);
+		if (ret) {
+			*s12wr = *s1wr;
+			return ret;
+		}
+	}
+
+	/*
+	 * Nothing left to do if we only have a single stage of translation, or
+	 * if the stage-2 MMU is disabled.
+	 */
+	if (wi->regime != TR_EL10 ||
+	    !(vcpu_read_sys_reg(vcpu, HCR_EL2) & (HCR_VM | HCR_DC))) {
+		*s12wr = *s1wr;
 		return 0;
 	}
 
-	return walk_s1(vcpu, wi, wr, access);
+	s2_access = *access;
+	s2_access.ia = s1wr->pa;
+	ret = kvm_walk_nested_s2(vcpu, &s2_access, s2wr);
+	if (ret) {
+		fail_s12_walk_s2(s12wr, s2wr->esr, access->ia, s2_access.ia);
+		return ret;
+	}
+
+	*s12wr = *s1wr;
+	s12wr->pa = s2wr->output;
+	s12wr->pr &= s2wr->readable;
+	s12wr->ur &= s2wr->readable;
+	s12wr->pw &= s2wr->writable;
+	s12wr->uw &= s2wr->writable;
+	s12wr->px &= s2wr->px;
+	s12wr->ux &= s2wr->ux;
+	return 0;
+}
+
+int kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
+		     struct s1_walk_result *wr, struct kvm_walk_access *access)
+{
+	struct s1_walk_result s1wr = {};
+	struct kvm_s2_trans s2wr = {};
+
+	return __kvm_translate_va(vcpu, wi, wr, &s1wr, &s2wr, access);
 }
 
 struct desc_match {

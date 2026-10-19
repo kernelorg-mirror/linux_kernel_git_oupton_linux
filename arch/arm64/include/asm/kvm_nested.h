@@ -398,13 +398,29 @@ static inline void fail_s12_walk_s1ptw(struct s1_walk_result *wr, u8 fst,
 	};
 }
 
+static inline void fail_s12_walk_s2(struct s1_walk_result *wr, u8 fst,
+				    u64 fault_va, u64 fault_ipa)
+{
+	*wr = (struct s1_walk_result) {
+		.failed		= true,
+		.ptw		= false,
+		.s2		= true,
+		.fst		= fst,
+		.fault_va	= fault_va,
+		.fault_ipa	= fault_ipa,
+	};
+}
+
 static inline bool s1_walk_translated(struct s1_walk_result *wr)
 {
 	return wr->level != S1_MMU_DISABLED;
 }
 
 int __kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
-		       struct s1_walk_result *wr, struct kvm_walk_access *access);
+		       struct s1_walk_result *s12wr, struct s1_walk_result *s1wr,
+		       struct kvm_s2_trans *s2wr, struct kvm_walk_access *access);
+int kvm_translate_va(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
+		     struct s1_walk_result *wr, struct kvm_walk_access *access);
 int __kvm_find_s1_desc_level(struct kvm_vcpu *vcpu, u64 va, u64 ipa,
 			     int *level);
 

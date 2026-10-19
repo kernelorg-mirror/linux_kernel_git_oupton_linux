@@ -1703,7 +1703,7 @@ static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
 	mmu_seq = vcpu->kvm->mmu_invalidate_seq;
 	smp_rmb();
 
-	ret = __kvm_translate_va(vcpu, &vt->wi, &vt->wr, &access);
+	ret = kvm_translate_va(vcpu, &vt->wi, &vt->wr, &access);
 	if (ret)
 		return ret;
 
