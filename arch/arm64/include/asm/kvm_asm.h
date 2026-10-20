@@ -298,25 +298,35 @@ extern void __vgic_v3_init_lrs(void);
 	"	.popsection\n"
 
 
-#define __kvm_at(at_op, addr)						\
+#define __kvm_sys_insn(op, arg)						\
 ( { 									\
-	int __kvm_at_err = 0;						\
+	int __kvm_err = 0;						\
 	u64 spsr, elr;							\
 	asm volatile(							\
 	"	mrs	%1, spsr_el2\n"					\
 	"	mrs	%2, elr_el2\n"					\
-	"1:	" __msr_s(at_op, "%3") "\n"				\
-	"	isb\n"							\
+	"1:	" __msr_s(op, "%3") "\n"				\
 	"	b	9f\n"						\
 	"2:	msr	spsr_el2, %1\n"					\
 	"	msr	elr_el2, %2\n"					\
 	"	mov	%w0, %4\n"					\
 	"9:\n"								\
 	__KVM_EXTABLE(1b, 2b)						\
-	: "+r" (__kvm_at_err), "=&r" (spsr), "=&r" (elr)		\
-	: "r" (addr), "i" (-EFAULT));					\
-	__kvm_at_err;							\
+	: "+r" (__kvm_err), "=&r" (spsr), "=&r" (elr)			\
+	: "r" (arg), "i" (-EFAULT));					\
+	__kvm_err;							\
 } )
+
+#define __kvm_at(at_op, addr)				\
+({							\
+	int __kvm_at_err;				\
+							\
+	__kvm_at_err = __kvm_sys_insn(at_op, addr);	\
+	if (likely(!__kvm_at_err))			\
+		isb();					\
+							\
+	__kvm_at_err;					\
+})
 
 void __noreturn hyp_panic(void);
 asmlinkage void kvm_unexpected_el2_exception(void);
