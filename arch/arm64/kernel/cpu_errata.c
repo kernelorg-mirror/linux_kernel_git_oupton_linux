@@ -638,9 +638,14 @@ static const struct midr_range erratum_ac03_cpu_38_list[] = {
 };
 #endif
 
-#ifdef CONFIG_AMPERE_ERRATUM_AC04_CPU_23
-static const struct midr_range erratum_ac04_cpu_23_list[] = {
+#ifdef CONFIG_ARM64_WORKAROUND_BROKEN_HCR
+static const struct midr_range erratum_broken_hcr_list[] = {
+#ifdef CONFIG_AMPERE_ERRATUM_AC03_CPU_38
 	MIDR_ALL_VERSIONS(MIDR_AMPERE1A),
+#endif
+#ifdef CONFIG_ARM64_WORKAROUND_NEOVERSE_N3_HCR
+	MIDR_ALL_VERSIONS(MIDR_NEOVERSE_N3),
+#endif
 	{},
 };
 #endif
@@ -1002,11 +1007,11 @@ const struct arm64_cpu_capabilities arm64_errata[] = {
 		ERRATA_MIDR_RANGE_LIST(erratum_ac03_cpu_38_list),
 	},
 #endif
-#ifdef CONFIG_AMPERE_ERRATUM_AC04_CPU_23
+#ifdef CONFIG_ARM64_WORKAROUND_BROKEN_HCR
 	{
-		.desc = "AmpereOne erratum AC04_CPU_23",
-		.capability = ARM64_WORKAROUND_AMPERE_AC04_CPU_23,
-		ERRATA_MIDR_RANGE_LIST(erratum_ac04_cpu_23_list),
+		.desc = "Writes to HCR_EL2 require synchronization",
+		.capability = ARM64_WORKAROUND_BROKEN_HCR,
+		ERRATA_MIDR_RANGE_LIST(erratum_broken_hcr_list),
 	},
 #endif
 	{

@@ -437,9 +437,13 @@ config AMPERE_ERRATUM_AC03_CPU_38
 
 	  If unsure, say Y.
 
+config ARM64_WORKAROUND_BROKEN_HCR
+	bool
+
 config AMPERE_ERRATUM_AC04_CPU_23
         bool "AmpereOne: AC04_CPU_23:  Failure to synchronize writes to HCR_EL2 may corrupt address translations."
 	default y
+	select ARM64_WORKAROUND_BROKEN_HCR
 	help
 	  This option adds an alternative code sequence to work around Ampere
 	  errata AC04_CPU_23 on AmpereOne.
@@ -451,6 +455,27 @@ config AMPERE_ERRATUM_AC04_CPU_23
 	  sufficient to prevent older instructions from hitting the window
 	  for corruption, and an ISB after is sufficient to prevent younger
 	  instructions from hitting the window for corruption.
+
+	  If unsure, say Y.
+
+config ARM64_ERRATUM_NEOVERSE_N3_HCR
+	bool "Neoverse-N3: XXXXXXXX: CPU may deadlock on a speculated write to HCR_EL2.{TGE,E2H}"
+	default y
+	select ARM64_WORKAROUND_BROKEN_HCR
+	help
+	  This option adds an alternative code sequence to work around Arm
+	  erratum XXXXXXXX on Neoverse-N3.
+
+	  Speculated updates to HCR_EL2.{E2H,TGE} can enter a circular
+	  dependency with speculated accesses to system registers that have
+	  an implied, indirect read of the aforementioned control bits (e.g.
+	  CNTP_CVAL_EL0).
+
+	  The mitigation adds an ISB after writes to HCR_EL2, ensuring context
+	  synchronization has occurred prior to a speculative system register
+	  access that may indirectly read HCR_EL2. Note that this mitigation is
+	  intended as a temporary workaround and will be addressed with an
+	  update to Arm Trusted Firmware at a later date.
 
 	  If unsure, say Y.
 
