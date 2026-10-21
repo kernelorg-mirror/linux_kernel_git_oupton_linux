@@ -556,6 +556,18 @@ static bool access_dcsw(struct kvm_vcpu *vcpu,
 	return true;
 }
 
+static bool access_dc_va(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			 const struct sys_reg_desc *r)
+{
+	u32 op = reg_to_encoding(r);
+	u64 gva = p->regval;
+
+	if (!p->is_write)
+		return read_from_write_only(vcpu, p, r);
+
+	return kvm_emulate_dc_va(vcpu, op, gva);
+}
+
 static void get_access_mask(const struct sys_reg_desc *r, u64 *mask, u64 *shift)
 {
 	switch (r->aarch32_map) {
@@ -4301,8 +4313,11 @@ static bool handle_tlbi_el1(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
 	}
 
 static struct sys_reg_desc sys_insn_descs[] = {
+	{ SYS_DESC(SYS_DC_IVAC), access_dc_va },
 	{ SYS_DESC(SYS_DC_ISW), access_dcsw },
+	MTE_CMO_INSN(DC_IGVAC, bad_trap),
 	MTE_CMO_INSN(DC_IGSW, access_dcsw),
+	MTE_CMO_INSN(DC_IGDVAC, bad_trap),
 	MTE_CMO_INSN(DC_IGDSW, access_dcsw),
 
 	SYS_INSN(AT_S1E1R, handle_at_s1e01),
@@ -4319,6 +4334,8 @@ static struct sys_reg_desc sys_insn_descs[] = {
 	{ SYS_DESC(SYS_DC_CISW), access_dcsw },
 	MTE_CMO_INSN(DC_CIGSW, access_dcsw),
 	MTE_CMO_INSN(DC_CIGDSW, access_dcsw),
+	{ SYS_DESC(SYS_DC_CIVAPS), access_dc_va },
+	MTE_CMO_INSN(DC_CIGDVAPS, bad_trap),
 
 	SYS_INSN(TLBI_VMALLE1OS, handle_tlbi_el1),
 	SYS_INSN(TLBI_VAE1OS, handle_tlbi_el1),
@@ -4391,6 +4408,19 @@ static struct sys_reg_desc sys_insn_descs[] = {
 	SYS_INSN(TLBI_VAAE1NXS, handle_tlbi_el1),
 	SYS_INSN(TLBI_VALE1NXS, handle_tlbi_el1),
 	SYS_INSN(TLBI_VAALE1NXS, handle_tlbi_el1),
+
+	{ SYS_DESC(SYS_DC_CVAC), access_dc_va },
+	MTE_CMO_INSN(DC_CGVAC, bad_trap),
+	MTE_CMO_INSN(DC_CGDVAC, bad_trap),
+	{ SYS_DESC(SYS_DC_CVAP), access_dc_va },
+	MTE_CMO_INSN(DC_CGVAP, bad_trap),
+	MTE_CMO_INSN(DC_CGDVAP, bad_trap),
+	{ SYS_DESC(SYS_DC_CVADP), access_dc_va },
+	MTE_CMO_INSN(DC_CGVADP, bad_trap),
+	MTE_CMO_INSN(DC_CGDVADP, bad_trap),
+	{ SYS_DESC(SYS_DC_CIVAC), access_dc_va },
+	MTE_CMO_INSN(DC_CIGVAC, bad_trap),
+	MTE_CMO_INSN(DC_CIGDVAC, bad_trap),
 
 	SYS_INSN(AT_S1E2R, handle_at_s1e2),
 	SYS_INSN(AT_S1E2W, handle_at_s1e2),
