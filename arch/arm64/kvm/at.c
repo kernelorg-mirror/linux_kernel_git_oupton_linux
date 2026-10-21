@@ -422,12 +422,12 @@ addrsz:
 	 * Address Size Fault level 0 to indicate it comes from TTBR.
 	 * yes, this is an oddity.
 	 */
-	fail_s1_walk(wr, ESR_ELx_FSC_ADDRSZ_L(0), false);
+	fail_s1_walk(wr, ESR_ELx_FSC_ADDRSZ_L(0), va);
 	return -EFAULT;
 
 transfault:
 	/* Translation Fault on start level */
-	fail_s1_walk(wr, ESR_ELx_FSC_FAULT_L(wi->sl), false);
+	fail_s1_walk(wr, ESR_ELx_FSC_FAULT_L(wi->sl), va);
 	return -EFAULT;
 }
 
@@ -502,7 +502,8 @@ static int handle_desc_update(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		return 0;
 
 	if (wi->s2 && !ws->s2_trans.writable) {
-		fail_s1_walk(wr, ESR_ELx_FSC_PERM_L(ws->level), true);
+		fail_s12_walk_s1ptw(wr, ESR_ELx_FSC_PERM_L(ws->level), access->ia,
+				    ws->desc_ipa);
 		return -EPERM;
 	}
 
@@ -520,7 +521,7 @@ static int handle_desc_update(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 	if (ret == -EAGAIN)
 		return ret;
 	if (ret) {
-		fail_s1_walk(wr, ESR_ELx_FSC_SEA_TTW(ws->level), false);
+		fail_s1_walk(wr, ESR_ELx_FSC_SEA_TTW(ws->level), access->ia);
 		return ret;
 	}
 
@@ -576,15 +577,15 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 				return ret;
 
 			if (ret) {
-				fail_s1_walk(wr,
-					     (ws.s2_trans.esr & ~ESR_ELx_FSC_LEVEL) | ws.level,
-					     true);
+				u8 fst = (ws.s2_trans.esr & ~ESR_ELx_FSC_LEVEL) | ws.level;
+
+				fail_s12_walk_s1ptw(wr, fst, access->ia, ws.desc_ipa);
 				return ret;
 			}
 
 			if (!ws.s2_trans.readable) {
-				fail_s1_walk(wr, ESR_ELx_FSC_PERM_L(ws.level),
-					     true);
+				fail_s12_walk_s1ptw(wr, ESR_ELx_FSC_PERM_L(ws.level),
+						    access->ia, ws.desc_ipa);
 
 				return -EPERM;
 			}
@@ -605,7 +606,7 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 
 		ret = kvm_read_s1_desc(vcpu, ws.desc_pa, &ws.desc, wi);
 		if (ret) {
-			fail_s1_walk(wr, ESR_ELx_FSC_SEA_TTW(ws.level), false);
+			fail_s1_walk(wr, ESR_ELx_FSC_SEA_TTW(ws.level), access->ia);
 			return ret;
 		}
 
@@ -683,17 +684,17 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		return ret;
 
 	if (!(ws.desc & PTE_AF)) {
-		fail_s1_walk(wr, ESR_ELx_FSC_ACCESS_L(ws.level), false);
+		fail_s1_walk(wr, ESR_ELx_FSC_ACCESS_L(ws.level), access->ia);
 		return -EACCES;
 	}
 
 	return 0;
 
 addrsz:
-	fail_s1_walk(wr, ESR_ELx_FSC_ADDRSZ_L(ws.level), false);
+	fail_s1_walk(wr, ESR_ELx_FSC_ADDRSZ_L(ws.level), access->ia);
 	return -EINVAL;
 transfault:
-	fail_s1_walk(wr, ESR_ELx_FSC_FAULT_L(ws.level), false);
+	fail_s1_walk(wr, ESR_ELx_FSC_FAULT_L(ws.level), access->ia);
 	return -ENOENT;
 }
 
@@ -1474,7 +1475,7 @@ static int handle_at_slow(struct kvm_vcpu *vcpu, u32 op, u64 vaddr, u64 *par)
 	}
 
 	if (perm_fail)
-		fail_s1_walk(&wr, ESR_ELx_FSC_PERM_L(wr.level), false);
+		fail_s1_walk(&wr, ESR_ELx_FSC_PERM_L(wr.level), access.ia);
 
 compute_par:
 	*par = compute_par_s1(vcpu, &wi, &wr);
