@@ -2975,3 +2975,165 @@ int kvm_inject_nested_serror(struct kvm_vcpu *vcpu, u64 esr)
 	esr |= FIELD_PREP(ESR_ELx_EC_MASK, ESR_ELx_EC_SERROR) | ESR_ELx_IL;
 	return kvm_inject_nested(vcpu, esr, except_type_serror);
 }
+
+static bool kvm_inject_cmo_dabt(struct kvm_vcpu *vcpu, struct s1_walk_result *wr)
+{
+	u64 esr, hpfar;
+
+	if (!wr->s2) {
+		kvm_inject_s1_cmo_dabt(vcpu, wr->fst, wr->fault_va);
+		return false;
+	}
+
+	vcpu_write_sys_reg(vcpu, wr->fault_va, FAR_EL2);
+
+	hpfar = (wr->fault_ipa >> 8) & HPFAR_EL2_FIPA;
+	vcpu_write_sys_reg(vcpu, hpfar, HPFAR_EL2);
+
+	esr = FIELD_PREP(ESR_ELx_EC_MASK, ESR_ELx_EC_DABT_LOW)	|
+	      FIELD_PREP(ESR_ELx_FSC, wr->fst)			|
+	      ESR_ELx_IL | ESR_ELx_CM | ESR_ELx_WNR;
+	kvm_inject_nested_sync(vcpu, esr);
+	return false;
+}
+
+static bool cmo_op_is_invalidate(u32 op)
+{
+	switch (op) {
+	case SYS_DC_IVAC:
+	case SYS_DC_CIVAC:
+	case SYS_DC_CIVAPS:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool check_cmo_s1_permissions(struct kvm_vcpu *vcpu, u32 op, u64 va,
+				     struct s1_walk_result *wr)
+{
+	bool perm = vcpu_mode_priv(vcpu) ? wr->pw : wr->uw;
+	bool cmow;
+
+	/*
+	 * CMOs that do not perform an Invalidate do not require any permissions
+	 * at stage-1. Otherwise, translations that grant write permission pass
+	 * the permission check regardless of FEAT_CMOW.
+	 */
+	if (!cmo_op_is_invalidate(op) || perm)
+		return true;
+
+	if (vcpu_trans_regime(vcpu) == TR_EL10)
+		cmow = vcpu_read_sys_reg(vcpu, SCTLR_EL1) & SCTLR_EL1_CMOW;
+	else
+		cmow = vcpu_read_sys_reg(vcpu, SCTLR_EL2) & SCTLR_EL2_CMOW;
+
+	/*
+	 * CMOs that perform a Clean-Invalidate require write permission at EL0
+	 * if FEAT_CMOW is enabled.
+	 */
+	if ((op != SYS_DC_IVAC) && (vcpu_mode_priv(vcpu) || !cmow))
+		return true;
+
+	fail_s1_walk(wr, ESR_ELx_FSC_PERM_L(wr->level), va);
+	return false;
+}
+
+static bool check_cmo_s2_permissions(struct kvm_vcpu *vcpu,
+				     u32 op, u64 va, u64 ipa,
+				     struct s1_walk_result *s12wr,
+				     struct kvm_s2_trans *s2wr)
+{
+	/*
+	 * Similar to stage-1, either the CMO does not require any permissions or
+	 * the translation is already writable.
+	 */
+	if (!cmo_op_is_invalidate(op) || s2wr->writable)
+		return true;
+
+	if (!(op == SYS_DC_IVAC || (vcpu_read_sys_reg(vcpu, HCRX_EL2) & HCRX_EL2_CMOW)))
+		return true;
+
+	fail_s12_walk_s2(s12wr, ESR_ELx_FSC_PERM_L(s2wr->level), va, ipa);
+	return false;
+}
+
+static bool __kvm_emulate_dc_va(struct kvm_vcpu *vcpu, u32 op, u64 va)
+{
+	struct s1_walk_result s12wr = {}, s1wr = {};
+	struct kvm_walk_access access = {};
+	struct kvm_s2_trans s2wr = {};
+	struct s1_walk_info wi = {
+		.regime	= vcpu_trans_regime(vcpu),
+		.as_el0 = !vcpu_mode_priv(vcpu),
+	};
+	void *hva;
+	int ret;
+
+	/* Shouldn't be here... */
+	if (KVM_BUG_ON(!vcpu_has_nv(vcpu), vcpu->kvm))
+		return false;
+
+	access.type = WALK_ACCESS_CMO;
+	access.write = true;
+	access.ia = va;
+
+	guard(srcu)(&vcpu->kvm->srcu);
+	ret = __kvm_translate_va(vcpu, &wi, &s12wr, &s1wr, &s2wr, &access);
+	if (ret == -EAGAIN)
+		return false;
+	if (ret)
+		return kvm_inject_cmo_dabt(vcpu, &s12wr);
+
+	/*
+	 * Independently assess permissions at stage-1 and stage-2, accounting
+	 * for the possibility that FEAT_CMOW may only be enabled at a single
+	 * stage of translation...
+	 */
+	if (!check_cmo_s1_permissions(vcpu, op, va, &s1wr))
+		return kvm_inject_cmo_dabt(vcpu, &s1wr);
+	if (!check_cmo_s2_permissions(vcpu, op, va, s1wr.pa, &s12wr, &s2wr))
+		return kvm_inject_cmo_dabt(vcpu, &s12wr);
+
+	/*
+	 * Create a temporary mapping for the GFN so we have an alias to do
+	 * cache maintenance on.
+	 */
+	CLASS(kvm_vcpu_map_local_ro, m)(vcpu, gpa_to_gfn(s12wr.pa));
+	if (m.ret) {
+		fail_s1_walk(&s12wr, ESR_ELx_FSC_EXTABT, va);
+		return kvm_inject_cmo_dabt(vcpu, &s12wr);
+	}
+
+	hva = m.map.hva + offset_in_page(s12wr.pa);
+
+	/*
+	 * PoP? PoDP? PoPS?! Best we can do for you is PoC.
+	 *
+	 * And yes, everything gets upgraded to Clean-Invalidate. You're keeping
+	 * the data and you're gonna like it.
+	 */
+	ret = __kvm_sys_insn(SYS_DC_CIVAC, hva);
+	if (!ret)
+		return true;
+
+	fail_s1_walk(&s12wr, ESR_ELx_FSC_EXTABT, va);
+	return kvm_inject_cmo_dabt(vcpu, &s12wr);
+}
+
+bool kvm_emulate_dc_va(struct kvm_vcpu *vcpu, u32 op, u64 va)
+{
+	bool ret;
+
+	/*
+	 * Hammer time! We're about to consume a translation from the EL1&0
+	 * translation regime. As KVM doesn't trap TLBI instructions in when in
+	 * a nested state, we must prevent concurrent invalidation of the
+	 * translation until the CMO has completed.
+	 */
+	kvm_arm_halt_guest(vcpu->kvm);
+	ret = __kvm_emulate_dc_va(vcpu, op, va);
+	kvm_arm_resume_guest(vcpu->kvm);
+
+	return ret;
+}

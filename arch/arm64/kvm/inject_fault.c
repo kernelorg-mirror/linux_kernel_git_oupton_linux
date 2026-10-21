@@ -283,6 +283,17 @@ int kvm_inject_dabt_excl_atomic(struct kvm_vcpu *vcpu, u64 addr)
 	return 1;
 }
 
+void kvm_inject_s1_cmo_dabt(struct kvm_vcpu *vcpu, u8 fsc, u64 addr)
+{
+	u64 esr;
+
+	__kvm_inject_sea(vcpu, false, addr);
+	esr = vcpu_read_sys_reg(vcpu, exception_esr_elx(vcpu));
+	esr &= ~ESR_ELx_ISS_MASK;
+	esr |= FIELD_PREP(ESR_ELx_FSC, fsc) | ESR_ELx_CM | ESR_ELx_WNR;
+	vcpu_write_sys_reg(vcpu, esr, exception_esr_elx(vcpu));
+}
+
 void kvm_inject_size_fault(struct kvm_vcpu *vcpu)
 {
 	unsigned long addr, esr;
