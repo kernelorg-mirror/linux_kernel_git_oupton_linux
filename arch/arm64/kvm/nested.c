@@ -1710,7 +1710,7 @@ static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
 	gfn = vt->wr.pa >> PAGE_SHIFT;
 	memslot = gfn_to_memslot(vcpu->kvm, gfn);
 	if (!memslot) {
-		fail_s1_walk(&vt->wr, ESR_ELx_FSC_EXTABT, false);
+		fail_s1_walk(&vt->wr, ESR_ELx_FSC_EXTABT, va);
 		return -EFAULT;
 	}
 
@@ -1719,7 +1719,7 @@ static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
 		pfn = __kvm_faultin_pfn(memslot, gfn, write_fault ? FOLL_WRITE : 0,
 					&writable, &page);
 		if (is_error_noslot_pfn(pfn)) {
-			fail_s1_walk(&vt->wr, ESR_ELx_FSC_EXTABT, false);
+			fail_s1_walk(&vt->wr, ESR_ELx_FSC_EXTABT, va);
 			return -EFAULT;
 		}
 	} else {
@@ -1735,7 +1735,7 @@ static int kvm_translate_vncr(struct kvm_vcpu *vcpu, bool *is_gmem)
 
 	if (!kvm_arch_vcpu_map_allowed(vcpu, pfn, true)) {
 		kvm_release_faultin_page(vcpu->kvm, page, true, false);
-		fail_s1_walk(&vt->wr, ESR_ELx_FSC_EXTABT, false);
+		fail_s1_walk(&vt->wr, ESR_ELx_FSC_EXTABT, va);
 		return -EINVAL;
 	}
 

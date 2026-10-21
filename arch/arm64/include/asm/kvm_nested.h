@@ -364,6 +364,8 @@ struct s1_walk_result {
 			bool	dirty;
 		};
 		struct {
+			u64	fault_va;
+			u64	fault_ipa;
 			u8	fst;
 			bool	ptw;
 			bool	s2;
@@ -374,12 +376,26 @@ struct s1_walk_result {
 
 #define S1_MMU_DISABLED		(-127)
 
-static inline void fail_s1_walk(struct s1_walk_result *wr, u8 fst, bool s1ptw)
+static inline void fail_s1_walk(struct s1_walk_result *wr, u8 fst, u64 fault_va)
 {
-	wr->fst		= fst;
-	wr->ptw		= s1ptw;
-	wr->s2		= s1ptw;
-	wr->failed	= true;
+	*wr = (struct s1_walk_result) {
+		.failed		= true,
+		.fst		= fst,
+		.fault_va	= fault_va,
+	};
+}
+
+static inline void fail_s12_walk_s1ptw(struct s1_walk_result *wr, u8 fst,
+				       u64 fault_va, u64 fault_ipa)
+{
+	*wr = (struct s1_walk_result) {
+		.failed		= true,
+		.ptw		= true,
+		.s2		= true,
+		.fst		= fst,
+		.fault_va	= fault_va,
+		.fault_ipa	= fault_ipa,
+	};
 }
 
 static inline bool s1_walk_translated(struct s1_walk_result *wr)
