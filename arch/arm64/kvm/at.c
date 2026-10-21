@@ -1868,10 +1868,7 @@ int __kvm_find_s1_desc_level(struct kvm_vcpu *vcpu, u64 va, u64 ipa, int *level)
 	struct s1_walk_result wr = {};
 	int ret;
 
-	if (is_hyp_ctxt(vcpu))
-		wi.regime = vcpu_el2_e2h_is_set(vcpu) ? TR_EL20 : TR_EL2;
-	else
-		wi.regime = TR_EL10;
+	wi.regime = vcpu_trans_regime(vcpu);
 
 	ret = setup_s1_walk(vcpu, &wi, &wr, va);
 	if (ret)

@@ -306,6 +306,10 @@ enum trans_regime {
 	TR_EL2,
 };
 
+#define vcpu_trans_regime(vcpu)							\
+	(!is_hyp_ctxt(vcpu) ? TR_EL10 :						\
+			      (vcpu_el2_e2h_is_set(vcpu) ? TR_EL20 : TR_EL2))
+
 struct s1_walk_info;
 
 struct s1_walk_context {
