@@ -556,17 +556,6 @@ static bool access_dcsw(struct kvm_vcpu *vcpu,
 	return true;
 }
 
-static bool access_dcgsw(struct kvm_vcpu *vcpu,
-			 struct sys_reg_params *p,
-			 const struct sys_reg_desc *r)
-{
-	if (!kvm_has_mte(vcpu->kvm))
-		return undef_access(vcpu, p, r);
-
-	/* Treat MTE S/W ops as we treat the classic ones: with contempt */
-	return access_dcsw(vcpu, p, r);
-}
-
 static void get_access_mask(const struct sys_reg_desc *r, u64 *mask, u64 *shift)
 {
 	switch (r->aarch32_map) {
@@ -4304,10 +4293,17 @@ static bool handle_tlbi_el1(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
 		.access = (access_fn),					\
 	}
 
+#define MTE_CMO_INSN(insn, access_fn)					\
+	{								\
+		SYS_DESC(SYS_##insn),					\
+		.access	= (access_fn),					\
+		.visibility = mte_visibility,				\
+	}
+
 static struct sys_reg_desc sys_insn_descs[] = {
 	{ SYS_DESC(SYS_DC_ISW), access_dcsw },
-	{ SYS_DESC(SYS_DC_IGSW), access_dcgsw },
-	{ SYS_DESC(SYS_DC_IGDSW), access_dcgsw },
+	MTE_CMO_INSN(DC_IGSW, access_dcsw),
+	MTE_CMO_INSN(DC_IGDSW, access_dcsw),
 
 	SYS_INSN(AT_S1E1R, handle_at_s1e01),
 	SYS_INSN(AT_S1E1W, handle_at_s1e01),
@@ -4318,11 +4314,11 @@ static struct sys_reg_desc sys_insn_descs[] = {
 	SYS_INSN(AT_S1E1A, handle_at_s1e01),
 
 	{ SYS_DESC(SYS_DC_CSW), access_dcsw },
-	{ SYS_DESC(SYS_DC_CGSW), access_dcgsw },
-	{ SYS_DESC(SYS_DC_CGDSW), access_dcgsw },
+	MTE_CMO_INSN(DC_CGSW, access_dcsw),
+	MTE_CMO_INSN(DC_CGDSW, access_dcsw),
 	{ SYS_DESC(SYS_DC_CISW), access_dcsw },
-	{ SYS_DESC(SYS_DC_CIGSW), access_dcgsw },
-	{ SYS_DESC(SYS_DC_CIGDSW), access_dcgsw },
+	MTE_CMO_INSN(DC_CIGSW, access_dcsw),
+	MTE_CMO_INSN(DC_CIGDSW, access_dcsw),
 
 	SYS_INSN(TLBI_VMALLE1OS, handle_tlbi_el1),
 	SYS_INSN(TLBI_VAE1OS, handle_tlbi_el1),
