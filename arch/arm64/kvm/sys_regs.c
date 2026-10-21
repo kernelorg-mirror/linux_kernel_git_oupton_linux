@@ -4295,6 +4295,12 @@ static bool handle_tlbi_el1(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
 		.access = (access_fn),					\
 	}
 
+static bool bad_cmo_trap(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			 const struct sys_reg_desc *r)
+{
+	return bad_trap(vcpu, p, r, "MTE CMO trap");
+}
+
 #define MTE_CMO_INSN(insn, access_fn)					\
 	{								\
 		SYS_DESC(SYS_##insn),					\
@@ -4304,7 +4310,9 @@ static bool handle_tlbi_el1(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
 
 static struct sys_reg_desc sys_insn_descs[] = {
 	{ SYS_DESC(SYS_DC_ISW), access_dcsw },
+	MTE_CMO_INSN(DC_IGVAC, bad_cmo_trap),
 	MTE_CMO_INSN(DC_IGSW, access_dcsw),
+	MTE_CMO_INSN(DC_IGDVAC, bad_cmo_trap),
 	MTE_CMO_INSN(DC_IGDSW, access_dcsw),
 
 	SYS_INSN(AT_S1E1R, handle_at_s1e01),
@@ -4321,6 +4329,7 @@ static struct sys_reg_desc sys_insn_descs[] = {
 	{ SYS_DESC(SYS_DC_CISW), access_dcsw },
 	MTE_CMO_INSN(DC_CIGSW, access_dcsw),
 	MTE_CMO_INSN(DC_CIGDSW, access_dcsw),
+	MTE_CMO_INSN(DC_CIGDVAPS, bad_cmo_trap),
 
 	SYS_INSN(TLBI_VMALLE1OS, handle_tlbi_el1),
 	SYS_INSN(TLBI_VAE1OS, handle_tlbi_el1),
@@ -4393,6 +4402,15 @@ static struct sys_reg_desc sys_insn_descs[] = {
 	SYS_INSN(TLBI_VAAE1NXS, handle_tlbi_el1),
 	SYS_INSN(TLBI_VALE1NXS, handle_tlbi_el1),
 	SYS_INSN(TLBI_VAALE1NXS, handle_tlbi_el1),
+
+	MTE_CMO_INSN(DC_CGVAC, bad_cmo_trap),
+	MTE_CMO_INSN(DC_CGDVAC, bad_cmo_trap),
+	MTE_CMO_INSN(DC_CGVAP, bad_cmo_trap),
+	MTE_CMO_INSN(DC_CGDVAP, bad_cmo_trap),
+	MTE_CMO_INSN(DC_CGVADP, bad_cmo_trap),
+	MTE_CMO_INSN(DC_CGDVADP, bad_cmo_trap),
+	MTE_CMO_INSN(DC_CIGVAC, bad_cmo_trap),
+	MTE_CMO_INSN(DC_CIGDVAC, bad_cmo_trap),
 
 	SYS_INSN(AT_S1E2R, handle_at_s1e2),
 	SYS_INSN(AT_S1E2W, handle_at_s1e2),
