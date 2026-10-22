@@ -102,7 +102,7 @@ static bool effective_sctlr2_nmea(struct kvm_vcpu *vcpu)
 	return __effective_sctlr2_bit(vcpu, SCTLR2_EL1_NMEA_SHIFT);
 }
 
-static void __inject_abt64(struct kvm_vcpu *vcpu, bool iabt, u8 fsc, unsigned long addr)
+static void __inject_abt64(struct kvm_vcpu *vcpu, bool iabt, u32 iss, unsigned long addr)
 {
 	u64 esr;
 	u8 ec;
@@ -112,7 +112,7 @@ static void __inject_abt64(struct kvm_vcpu *vcpu, bool iabt, u8 fsc, unsigned lo
 	else
 		ec = iabt ? ESR_ELx_EC_IABT_LOW : ESR_ELx_EC_DABT_LOW;
 
-	esr = FIELD_PREP(ESR_ELx_EC_MASK, ec) | FIELD_PREP(ESR_ELx_FSC, fsc) |
+	esr = FIELD_PREP(ESR_ELx_EC_MASK, ec) | FIELD_PREP(ESR_ELx_ISS_MASK, iss) |
 	      ESR_ELx_IL;
 
 	vcpu_write_sys_reg(vcpu, addr, exception_far_elx(vcpu));
@@ -268,7 +268,7 @@ int kvm_inject_sea(struct kvm_vcpu *vcpu, bool iabt, u64 addr)
 	lockdep_assert_held(&vcpu->mutex);
 
 	if (is_nested_ctxt(vcpu) && kvm_sea_target_is_el2(vcpu))
-		return kvm_inject_nested_sea(vcpu, iabt, addr);
+		return kvm_inject_nested_sea(vcpu, iabt, ESR_ELx_FSC_EXTABT, addr);
 
 	__kvm_inject_sea(vcpu, iabt, addr);
 	return 1;
@@ -306,15 +306,31 @@ int kvm_inject_dabt_excl_atomic(struct kvm_vcpu *vcpu, u64 addr)
 	return 1;
 }
 
+static bool esr_fsc_is_sea(u64 esr)
+{
+	return esr_fsc_is_sea_ttw(esr) || esr_fsc_is_secc_ttw(esr) ||
+	       FIELD_GET(ESR_ELx_FSC, esr) == ESR_ELx_FSC_EXTABT;
+}
+
 void kvm_inject_s1_cmo_dabt(struct kvm_vcpu *vcpu, u8 fsc, u64 addr)
 {
-	u64 esr;
+	u64 iss = FIELD_PREP(ESR_ELx_FSC, fsc) | ESR_ELx_CM | ESR_ELx_WNR;
 
-	__kvm_inject_sea(vcpu, false, addr);
-	esr = vcpu_read_sys_reg(vcpu, exception_esr_elx(vcpu));
-	esr &= ~ESR_ELx_ISS_MASK;
-	esr |= FIELD_PREP(ESR_ELx_FSC, fsc) | ESR_ELx_CM | ESR_ELx_WNR;
-	vcpu_write_sys_reg(vcpu, esr, exception_esr_elx(vcpu));
+	/*
+	 * CMO traps are only ever taken from an NV guest, which is guaranteed
+	 * to be AArch64.
+	 */
+	KVM_BUG_ON(vcpu_el1_is_32bit(vcpu), vcpu->kvm);
+
+	if (is_nested_ctxt(vcpu) && esr_fsc_is_sea(fsc) && kvm_sea_target_is_el2(vcpu)) {
+		if (esr_fsc_is_sea_ttw(fsc) || esr_fsc_is_secc_ttw(fsc))
+			iss |= ESR_ELx_S1PTW;
+
+		kvm_inject_nested_sea(vcpu, false, iss | ESR_ELx_S1PTW, addr);
+		return;
+	}
+
+	inject_abt64(vcpu, false, iss, addr);
 }
 
 void kvm_inject_size_fault(struct kvm_vcpu *vcpu)
