@@ -1150,6 +1150,26 @@ int kvm_s2_handle_perm_fault(struct kvm_vcpu *vcpu, struct kvm_s2_trans *trans)
 	} else {
 		bool write_fault = kvm_is_write_fault(vcpu);
 
+		/*
+		 * Plug your nose for a moment.
+		 *
+		 * Writable-clean translations are shadowed using a read-only
+		 * mapping so KVM can set the dirty state on the L1 descriptor
+		 * before installing a writable mapping.
+		 *
+		 * Certain cache maintenance instructions require a write
+		 * permission check but leave the translation in a writable-clean
+		 * state, meaning KVM is on the hook to emulate CMOs that use a
+		 * writable-clean translation.
+		 *
+		 * "Emulate" the CMO as a NOP, as KVM only exposes FEAT_HAFDBS
+		 * when FEAT_S2FWB is present and the I-cache is coherent.
+		 */
+		if (kvm_vcpu_dabt_is_cm(vcpu) && trans->writable && !trans->dirty) {
+			kvm_incr_pc(vcpu);
+			return -EAGAIN;
+		}
+
 		forward_fault = ((write_fault && !trans->writable) ||
 				 (!write_fault && !trans->readable));
 	}
