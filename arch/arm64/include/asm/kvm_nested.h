@@ -29,7 +29,8 @@ static inline u64 translate_tcr_el2_to_tcr_el1(u64 tcr)
 	       (tcr & TCR_EL2_TG0_MASK) |
 	       (tcr & TCR_EL2_ORGN0_MASK) |
 	       (tcr & TCR_EL2_IRGN0_MASK) |
-	       (tcr & TCR_EL2_T0SZ_MASK);
+	       (tcr & TCR_EL2_T0SZ_MASK) |
+	       ((tcr & TCR_EL2_HA) ? TCR_HA : 0);
 }
 
 static inline u64 translate_cptr_el2_to_cpacr_el1(u64 cptr_el2)
