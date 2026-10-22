@@ -2513,6 +2513,10 @@ int kvm_handle_guest_abort(struct kvm_vcpu *vcpu)
 		}
 
 		ret = kvm_s2_handle_perm_fault(vcpu, &nested_trans);
+		if (ret == -EAGAIN) {
+			ret = 1;
+			goto out_unlock;
+		}
 		if (ret) {
 			esr = nested_trans.esr;
 			kvm_inject_s2_fault(vcpu, esr);
