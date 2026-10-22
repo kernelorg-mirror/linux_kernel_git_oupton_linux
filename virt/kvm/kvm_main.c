@@ -3204,6 +3204,12 @@ struct page *__gfn_to_page(struct kvm *kvm, gfn_t gfn, bool write)
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(__gfn_to_page);
 
+bool __weak kvm_arch_vcpu_map_allowed(struct kvm_vcpu *vcpu, kvm_pfn_t pfn,
+				      bool writable)
+{
+	return true;
+}
+
 int __kvm_vcpu_map(struct kvm_vcpu *vcpu, gfn_t gfn, struct kvm_host_map *map,
 		   bool writable)
 {
@@ -3227,6 +3233,9 @@ int __kvm_vcpu_map(struct kvm_vcpu *vcpu, gfn_t gfn, struct kvm_host_map *map,
 	map->pfn = kvm_follow_pfn(&kfp);
 	if (is_error_noslot_pfn(map->pfn))
 		return -EINVAL;
+
+	if (!kvm_arch_vcpu_map_allowed(vcpu, map->pfn, writable))
+		return -EPERM;
 
 	if (pfn_valid(map->pfn)) {
 		map->page = pfn_to_page(map->pfn);
