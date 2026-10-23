@@ -17,6 +17,7 @@
 #include <asm/sysreg.h>
 
 #include "sys_regs.h"
+#include "trace.h"
 #include "vgic/vgic.h"
 
 struct vncr_tlb {
@@ -155,12 +156,6 @@ struct s2_walk_info {
 	bool		haft;
 };
 
-struct s2_walk_step {
-	u64		desc_pa;
-	u64		desc;
-	int		level;
-};
-
 static u32 compute_fsc(int level, u32 fsc)
 {
 	return fsc | (level & 0x3);
@@ -279,10 +274,10 @@ static int handle_desc_update(struct kvm_vcpu *vcpu, struct s2_walk_info *wi,
 			      struct s2_walk_step *ws, struct kvm_s2_trans *out,
 			      struct kvm_walk_access *access)
 {
-	u64 old, new;
+	u64 old, old_cpu, new;
 	int ret;
 
-	old = new = ws->desc;
+	old = old_cpu = new = ws->desc;
 
 	if (should_set_access_flag(wi, ws, access))
 		new |= KVM_PTE_LEAF_ATTR_LO_S2_AF;
@@ -307,6 +302,7 @@ static int handle_desc_update(struct kvm_vcpu *vcpu, struct s2_walk_info *wi,
 	if (ret == -EAGAIN)
 		return ret;
 	if (!ret) {
+		trace_kvm_s2_desc_update(ws, access->ia, old_cpu);
 		out->desc = ws->desc;
 		out->dirty = out->desc & KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
 		return 0;
@@ -424,6 +420,8 @@ static int walk_nested_s2_pgd(struct kvm_vcpu *vcpu, struct kvm_walk_access *acc
 			out->esr = ESR_ELx_FSC_SEA_TTW(ws.level);
 			return ret;
 		}
+
+		trace_kvm_s2_walk_step(&ws, access->ia);
 
 		/* Check for valid descriptor at this point */
 		if (!(ws.desc & KVM_PTE_VALID)) {
