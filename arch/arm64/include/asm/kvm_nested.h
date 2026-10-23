@@ -126,6 +126,12 @@ struct kvm_walk_access {
 	bool	write;
 };
 
+struct s2_walk_step {
+	u64		desc_pa;
+	u64		desc;
+	int		level;
+};
+
 extern int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, struct kvm_walk_access *access,
 			      struct kvm_s2_trans *result);
 extern int kvm_s2_handle_perm_fault(struct kvm_vcpu *vcpu,
