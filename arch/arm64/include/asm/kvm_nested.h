@@ -345,6 +345,14 @@ struct s1_walk_info {
 	bool			haft;
 };
 
+struct s1_walk_step {
+	u64			desc;
+	u64			desc_ipa;
+	u64			desc_pa;
+	struct kvm_s2_trans	s2_trans;
+	int			level;
+};
+
 struct s1_walk_result {
 	union {
 		struct {

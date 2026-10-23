@@ -11,6 +11,8 @@
 #include <asm/kvm_mmu.h>
 #include <asm/lsui.h>
 
+#include "trace.h"
+
 static int get_ia_size(struct s1_walk_info *wi)
 {
 	return 64 - wi->txsz;
@@ -433,14 +435,6 @@ transfault:
 	return -EFAULT;
 }
 
-struct s1_walk_step {
-	u64			desc;
-	u64			desc_ipa;
-	u64			desc_pa;
-	struct kvm_s2_trans	s2_trans;
-	int			level;
-};
-
 static int kvm_read_s1_desc(struct kvm_vcpu *vcpu, u64 pa, u64 *desc,
 			    struct s1_walk_info *wi)
 {
@@ -492,10 +486,10 @@ static int handle_desc_update(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 			      struct s1_walk_step *ws, struct s1_walk_result *wr,
 			      struct kvm_walk_access *access)
 {
-	u64 old, new;
+	u64 old, old_cpu, new;
 	int ret;
 
-	old = new = ws->desc;
+	old = old_cpu = new = ws->desc;
 
 	if (should_set_access_flag(wi, ws, access))
 		new |= PTE_AF;
@@ -529,6 +523,8 @@ static int handle_desc_update(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		fail_s1_walk(wr, ESR_ELx_FSC_SEA_TTW(ws->level), access->ia);
 		return ret;
 	}
+
+	trace_kvm_s1_desc_update(ws, access->ia, old_cpu);
 
 	wr->desc = ws->desc;
 	wr->dirty = !(wr->desc & PTE_RDONLY);
@@ -614,6 +610,8 @@ static int walk_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 			fail_s1_walk(wr, ESR_ELx_FSC_SEA_TTW(ws.level), access->ia);
 			return ret;
 		}
+
+		trace_kvm_s1_walk_step(&ws, access->ia);
 
 		/* Invalid descriptor */
 		if (!(ws.desc & BIT(0)))

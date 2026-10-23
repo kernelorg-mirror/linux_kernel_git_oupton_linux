@@ -415,6 +415,58 @@ TRACE_EVENT(kvm_forward_sysreg_trap,
 		      sys_reg_Op2(__entry->sysreg))
 );
 
+TRACE_EVENT(kvm_s1_walk_step,
+	    TP_PROTO(struct s1_walk_step *ws, u64 ia),
+	    TP_ARGS(ws, ia),
+
+	    TP_STRUCT__entry(
+		__field(u64,	ia)
+		__field(u64,	desc)
+		__field(u64,	ipa)
+		__field(u64,	pa)
+		__field(int,	level)
+	    ),
+
+	    TP_fast_assign(
+		__entry->ia	= ia;
+		__entry->desc	= ws->desc;
+		__entry->ipa	= ws->desc_ipa;
+		__entry->pa	= ws->desc_pa;
+		__entry->level	= ws->level;
+	    ),
+
+	    TP_printk("ia: 0x%llx desc: 0x%llx ipa: 0x%llx pa: 0x%llx level: %d",
+		      __entry->ia, __entry->desc, __entry->ipa, __entry->pa,
+		      __entry->level)
+);
+
+TRACE_EVENT(kvm_s1_desc_update,
+	    TP_PROTO(struct s1_walk_step *ws, u64 ia, u64 old),
+	    TP_ARGS(ws, ia, old),
+
+	    TP_STRUCT__entry(
+		__field(u64,	ia)
+		__field(u64,	new)
+		__field(u64,	old)
+		__field(u64,	ipa)
+		__field(u64,	pa)
+		__field(int,	level)
+	    ),
+
+	    TP_fast_assign(
+		__entry->ia	= ia;
+		__entry->new	= ws->desc;
+		__entry->old	= old;
+		__entry->ipa	= ws->desc_ipa;
+		__entry->pa	= ws->desc_pa;
+		__entry->level	= ws->level;
+	    ),
+
+	    TP_printk("ia: 0x%llx new: 0x%llx old: 0x%llx ipa: 0x%llx pa: 0x%llx level: %d",
+		      __entry->ia, __entry->new, __entry->old, __entry->ipa,
+		      __entry->pa, __entry->level)
+);
+
 #endif /* _TRACE_ARM_ARM64_KVM_H */
 
 #undef TRACE_INCLUDE_PATH
