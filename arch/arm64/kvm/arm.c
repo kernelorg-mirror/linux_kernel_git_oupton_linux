@@ -133,6 +133,20 @@ int kvm_arch_vcpu_should_kick(struct kvm_vcpu *vcpu)
 	return kvm_vcpu_exiting_guest_mode(vcpu) == IN_GUEST_MODE;
 }
 
+void kvm_arch_register_noncoherent_dma(struct kvm *kvm)
+{
+	if (!cpus_have_final_cap(ARM64_HAS_STAGE2_FWB))
+		return;
+
+	pr_err_once("kvm: noncoherent DMA unsupported with FWB, see kvm_arm.nofwb\n");
+	kvm_vm_bugged(kvm);
+}
+
+void kvm_arch_unregister_noncoherent_dma(struct kvm *kvm)
+{
+
+}
+
 int kvm_vm_ioctl_enable_cap(struct kvm *kvm,
 			    struct kvm_enable_cap *cap)
 {
