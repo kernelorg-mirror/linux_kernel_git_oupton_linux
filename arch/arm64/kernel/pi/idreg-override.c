@@ -103,6 +103,7 @@ static const struct ftr_set_desc mmfr2 __prel64_initconst = {
 	.override	= &id_aa64mmfr2_override,
 	.fields		= {
 		FIELD("varange", ID_AA64MMFR2_EL1_VARange_SHIFT, mmfr2_varange_filter),
+		FIELD("fwb", ID_AA64MMFR2_EL1_FWB_SHIFT, NULL),
 		{}
 	},
 };
@@ -245,6 +246,7 @@ static const struct {
 } aliases[] __initconst = {
 	{ "kvm_arm.mode=nvhe",		"arm64_sw.hvhe=0 id_aa64mmfr1.vh=0" },
 	{ "kvm_arm.mode=protected",	"arm64_sw.hvhe=1" },
+	{ "kvm_arm.nofwb",		"id_aa64mmfr2.fwb=0" },
 	{ "arm64.nosve",		"id_aa64pfr0.sve=0" },
 	{ "arm64.nosme",		"id_aa64pfr1.sme=0" },
 	{ "arm64.nobti",		"id_aa64pfr1.bt=0" },

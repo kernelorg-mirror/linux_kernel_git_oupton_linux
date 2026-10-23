@@ -3265,6 +3265,10 @@ Kernel parameters
 			"nested" and "protected" are experimental and should be
 			used with extreme caution.
 
+	kvm-arm.nofwb
+			[KVM,ARM,EARLY] Disable the use of stage-2 forced
+			writeback in KVM.
+
 	kvm-arm.vgic_v3_group0_trap=
 			[KVM,ARM,EARLY] Trap guest accesses to GICv3 group-0
 			system registers
