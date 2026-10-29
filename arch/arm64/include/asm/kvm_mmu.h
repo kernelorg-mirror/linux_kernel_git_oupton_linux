@@ -320,7 +320,7 @@ static __always_inline u64 kvm_get_vttbr(struct kvm_s2_mmu *mmu)
  */
 static __always_inline void __load_stage2(struct kvm_s2_mmu *mmu)
 {
-	write_sysreg(mmu->vtcr, vtcr_el2);
+	write_sysreg_vtcr(mmu->vtcr);
 	write_sysreg(kvm_get_vttbr(mmu), vttbr_el2);
 
 	/*

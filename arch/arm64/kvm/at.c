@@ -685,7 +685,7 @@ static void __mmu_config_restore(struct mmu_config *config)
 	}
 	write_sysreg_el1(config->sctlr,	SYS_SCTLR);
 	write_sysreg(config->vttbr,	vttbr_el2);
-	write_sysreg(config->vtcr,	vtcr_el2);
+	write_sysreg_vtcr(config->vtcr);
 }
 
 static bool at_s1e1p_fast(struct kvm_vcpu *vcpu, u32 op, u64 vaddr)

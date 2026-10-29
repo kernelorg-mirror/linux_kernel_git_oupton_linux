@@ -1246,6 +1246,11 @@
 			     : : "rZ" (__val));				\
 } while (0)
 
+#define write_sysreg_vtcr(__val) do {					\
+	if (read_sysreg(vtcr_el2) != (__val))				\
+		write_sysreg(__val, vtcr_el2);				\
+} while (0)
+
 #define read_sysreg_par() ({						\
 	u64 par;							\
 	asm(ALTERNATIVE("nop", "dmb sy", ARM64_WORKAROUND_1508412));	\
