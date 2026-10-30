@@ -1569,6 +1569,8 @@ struct kvm *kvm_arch_alloc_vm(void);
 
 #define __KVM_HAVE_ARCH_FLUSH_REMOTE_TLBS_RANGE
 
+#define __KVM_HAVE_ARCH_NONCOHERENT_DMA
+
 #ifdef __KVM_NVHE_HYPERVISOR__
 
 #define kvm_vm_is_protected(kvm)			\
