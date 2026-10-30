@@ -3245,6 +3245,26 @@ void kvm_arch_irq_bypass_start(struct irq_bypass_consumer *cons)
 	kvm_arm_resume_guest(irqfd->kvm);
 }
 
+void kvm_arch_start_noncoherent_dma(struct kvm *kvm)
+{
+	if (!kvm_has_nv(kvm))
+		return;
+
+	/*
+	 * Kick vCPUs out of the guest to force cache maintenance traps to
+	 * be recomputed.
+	 */
+	kvm_make_all_cpus_request(kvm, KVM_REQ_OUTSIDE_GUEST_MODE);
+}
+
+void kvm_arch_stop_noncoherent_dma(struct kvm *kvm)
+{
+	if (!kvm_has_nv(kvm))
+		return;
+
+	kvm_make_all_cpus_request(kvm, KVM_REQ_OUTSIDE_GUEST_MODE);
+}
+
 /* Initialize Hyp-mode and memory mappings on all CPUs */
 static __init int kvm_arm_init(void)
 {
