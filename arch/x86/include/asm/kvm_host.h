@@ -47,6 +47,7 @@
 
 #define kvm_file_to_kvm_arch x86
 
+#define __KVM_HAVE_ARCH_NONCOHERENT_DMA
 #define __KVM_HAVE_ARCH_VCPU_DEBUGFS
 #define __KVM_HAVE_MSI
 #define __KVM_HAVE_NO_POLL
@@ -1194,8 +1195,6 @@ struct kvm_arch {
 
 	u64 shadow_mmio_value;
 
-#define __KVM_HAVE_ARCH_NONCOHERENT_DMA
-	atomic_t noncoherent_dma_count;
 	unsigned long nr_possible_bypass_irqs;
 
 #ifdef CONFIG_KVM_IOAPIC

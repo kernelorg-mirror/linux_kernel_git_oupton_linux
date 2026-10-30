@@ -134,9 +134,9 @@ static void kvm_vfio_update_coherency(struct kvm_device *dev)
 		kv->noncoherent = noncoherent;
 
 		if (kv->noncoherent)
-			kvm_arch_register_noncoherent_dma(dev->kvm);
+			kvm_register_noncoherent_dma(dev->kvm);
 		else
-			kvm_arch_unregister_noncoherent_dma(dev->kvm);
+			kvm_unregister_noncoherent_dma(dev->kvm);
 	}
 }
 
