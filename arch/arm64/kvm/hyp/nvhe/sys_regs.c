@@ -64,12 +64,12 @@ static bool vm_has_ptrauth(const struct kvm *kvm)
 
 	return (cpus_have_final_cap(ARM64_HAS_ADDRESS_AUTH) ||
 		cpus_have_final_cap(ARM64_HAS_GENERIC_AUTH)) &&
-		kvm_vcpu_has_feature(kvm, KVM_ARM_VCPU_PTRAUTH_GENERIC);
+		kvm_has_vcpu_feature(kvm, KVM_ARM_VCPU_PTRAUTH_GENERIC);
 }
 
 static bool vm_has_sve(const struct kvm *kvm)
 {
-	return system_supports_sve() && kvm_vcpu_has_feature(kvm, KVM_ARM_VCPU_SVE);
+	return system_supports_sve() && kvm_has_vcpu_feature(kvm, KVM_ARM_VCPU_SVE);
 }
 
 /*

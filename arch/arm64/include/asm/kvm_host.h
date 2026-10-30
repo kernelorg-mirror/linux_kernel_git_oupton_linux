@@ -1612,7 +1612,7 @@ static inline bool __vcpu_has_feature(const struct kvm_arch *ka, int feature)
 
 #if ARM64_S390_COMMON == 1
 
-#define kvm_vcpu_has_feature(k, f)	__vcpu_has_feature(&(k)->arch, (f))
+#define kvm_has_vcpu_feature(k, f)	__vcpu_has_feature(&(k)->arch, (f))
 #define vcpu_has_feature(v, f)	__vcpu_has_feature(&(v)->kvm->arch, (f))
 
 #define kvm_vcpu_initialized(v) vcpu_get_flag(v, VCPU_INITIALIZED)

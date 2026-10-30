@@ -433,7 +433,7 @@ static void pkvm_init_features_from_host(struct pkvm_hyp_vm *hyp_vm, const struc
 		   allowed_features, KVM_VCPU_MAX_FEATURES);
 out:
 	__assign_bit(KVM_ARCH_FLAG_GUEST_HAS_SVE, &kvm->arch.flags,
-		     kvm_vcpu_has_feature(kvm, KVM_ARM_VCPU_SVE));
+		     kvm_has_vcpu_feature(kvm, KVM_ARM_VCPU_SVE));
 }
 
 static int pkvm_vcpu_init_psci(struct pkvm_hyp_vcpu *hyp_vcpu, u32 mp_state)
