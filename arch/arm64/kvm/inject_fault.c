@@ -18,7 +18,7 @@
 static unsigned int exception_target_el(struct kvm_vcpu *vcpu)
 {
 	/* If not nesting, EL1 is the only possible exception target */
-	if (likely(!vcpu_has_nv(vcpu)))
+	if (likely(!vcpu_has_el2(vcpu)))
 		return PSR_MODE_EL1h;
 
 	/*
@@ -425,7 +425,7 @@ int kvm_inject_serror_esr(struct kvm_vcpu *vcpu, u64 esr)
 	 * As we're emulating the SError injection we need to explicitly populate
 	 * ESR_ELx.EC because hardware will not do it on our behalf.
 	 */
-	if (vcpu_has_nv(vcpu) && !serror_is_masked(vcpu)) {
+	if (vcpu_has_el2(vcpu) && !serror_is_masked(vcpu)) {
 		pend_serror_exception(vcpu);
 		esr |= FIELD_PREP(ESR_ELx_EC_MASK, ESR_ELx_EC_SERROR) | ESR_ELx_IL;
 		vcpu_write_sys_reg(vcpu, esr, exception_esr_elx(vcpu));

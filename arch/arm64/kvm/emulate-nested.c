@@ -2591,7 +2591,7 @@ bool triage_sysreg_trap(struct kvm_vcpu *vcpu, const struct sys_reg_desc **r)
 	 * If we're not nesting, immediately return to the caller, with the
 	 * sysreg index, should we have it.
 	 */
-	if (!vcpu_has_nv(vcpu))
+	if (!vcpu_has_el2(vcpu))
 		goto local;
 
 	/*
@@ -2884,7 +2884,7 @@ static int kvm_inject_nested(struct kvm_vcpu *vcpu, u64 esr_el2,
 	u64 pstate, mode;
 	bool direct_inject;
 
-	if (!vcpu_has_nv(vcpu)) {
+	if (!vcpu_has_el2(vcpu)) {
 		kvm_err("Unexpected call to %s for the non-nesting configuration\n",
 				__func__);
 		return -EINVAL;
@@ -3094,7 +3094,7 @@ static bool __kvm_emulate_dc_va(struct kvm_vcpu *vcpu, u32 op, u64 va)
 	int ret;
 
 	/* Shouldn't be here... */
-	if (KVM_BUG_ON(!vcpu_has_nv(vcpu), vcpu->kvm))
+	if (KVM_BUG_ON(!vcpu_has_el2(vcpu), vcpu->kvm))
 		return false;
 
 	access.type = WALK_ACCESS_CMO;

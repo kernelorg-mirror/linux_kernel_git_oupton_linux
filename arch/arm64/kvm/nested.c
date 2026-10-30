@@ -595,7 +595,7 @@ int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, struct kvm_walk_access *access,
 
 	result->esr = 0;
 
-	if (!vcpu_has_nv(vcpu))
+	if (!vcpu_has_el2(vcpu))
 		return 0;
 
 	setup_s2_walk(vcpu, &wi);
@@ -2310,7 +2310,7 @@ void check_nested_vcpu_requests(struct kvm_vcpu *vcpu)
  */
 void kvm_nested_flush_hwstate(struct kvm_vcpu *vcpu)
 {
-	if (!vcpu_has_nv(vcpu))
+	if (!vcpu_has_el2(vcpu))
 		return;
 
 	if (unlikely(vcpu_test_and_clear_flag(vcpu, NESTED_SERROR_PENDING)))
@@ -2326,7 +2326,7 @@ void kvm_nested_sync_hwstate(struct kvm_vcpu *vcpu)
 {
 	unsigned long *hcr = vcpu_hcr(vcpu);
 
-	if (!vcpu_has_nv(vcpu))
+	if (!vcpu_has_el2(vcpu))
 		return;
 
 	/*

@@ -1300,7 +1300,7 @@ u64 kvm_vcpu_apply_reg_masks(const struct kvm_vcpu *, enum vcpu_sysreg, u64);
 	do {								\
 		const struct kvm_cpu_context *ctxt = &(v)->arch.ctxt;	\
 		u64 __v = (val);					\
-		if (vcpu_has_nv((v)) && (r) >= __SANITISED_REG_START__)	\
+		if (vcpu_has_el2((v)) && (r) >= __SANITISED_REG_START__)	\
 			__v = kvm_vcpu_apply_reg_masks((v), (r), __v);	\
 									\
 		ctxt_sys_reg(ctxt, (r)) = __v;				\
@@ -1311,7 +1311,7 @@ u64 kvm_vcpu_apply_reg_masks(const struct kvm_vcpu *, enum vcpu_sysreg, u64);
 		const struct kvm_cpu_context *ctxt = &(v)->arch.ctxt;	\
 		u64 __v = ctxt_sys_reg(ctxt, (r));			\
 		__v op (val);						\
-		if (vcpu_has_nv((v)) && (r) >= __SANITISED_REG_START__)	\
+		if (vcpu_has_el2((v)) && (r) >= __SANITISED_REG_START__)	\
 			__v = kvm_vcpu_apply_reg_masks((v), (r), __v);	\
 									\
 		ctxt_sys_reg(ctxt, (r)) = __v;				\
@@ -1321,7 +1321,7 @@ u64 kvm_vcpu_apply_reg_masks(const struct kvm_vcpu *, enum vcpu_sysreg, u64);
 	({								\
 		const struct kvm_cpu_context *ctxt = &(v)->arch.ctxt;	\
 		u64 __v = ctxt_sys_reg(ctxt, (r));			\
-		if (vcpu_has_nv((v)) && (r) >= __SANITISED_REG_START__)	\
+		if (vcpu_has_el2((v)) && (r) >= __SANITISED_REG_START__)	\
 			__v = kvm_vcpu_apply_reg_masks((v), (r), __v);	\
 		__v;							\
 	})

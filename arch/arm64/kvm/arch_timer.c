@@ -69,7 +69,7 @@ static const struct irq_ops arch_timer_irq_ops_vgic_v5 = {
 
 static int nr_timers(struct kvm_vcpu *vcpu)
 {
-	if (!vcpu_has_nv(vcpu))
+	if (!vcpu_has_el2(vcpu))
 		return NR_KVM_EL0_TIMERS;
 
 	return NR_KVM_TIMERS;
@@ -164,7 +164,7 @@ u64 kvm_phys_timer_read(void)
 
 void get_timer_map(struct kvm_vcpu *vcpu, struct timer_map *map)
 {
-	if (vcpu_has_nv(vcpu)) {
+	if (vcpu_has_el2(vcpu)) {
 		if (is_hyp_ctxt(vcpu)) {
 			map->direct_vtimer = vcpu_hvtimer(vcpu);
 			map->direct_ptimer = vcpu_hptimer(vcpu);
@@ -895,7 +895,7 @@ void kvm_timer_vcpu_load(struct kvm_vcpu *vcpu)
 
 	if (static_branch_likely(&has_gic_active_state)) {
 		/* We don't do NV on GICv5, yet */
-		if (vcpu_has_nv(vcpu) && !vgic_is_v5(vcpu->kvm))
+		if (vcpu_has_el2(vcpu) && !vgic_is_v5(vcpu->kvm))
 			kvm_timer_vcpu_load_nested_switch(vcpu, &map);
 
 		kvm_timer_vcpu_load_gic(map.direct_vtimer);
@@ -1044,7 +1044,7 @@ void kvm_timer_vcpu_reset(struct kvm_vcpu *vcpu)
 	 * the virtual timer, so use the physical VM offset, and point
 	 * the vcpu offset to CNTVOFF_EL2.
 	 */
-	if (vcpu_has_nv(vcpu)) {
+	if (vcpu_has_el2(vcpu)) {
 		struct arch_timer_offset *offs = &vcpu_vtimer(vcpu)->offset;
 
 		offs->vcpu_offset = __ctxt_sys_reg(&vcpu->arch.ctxt, CNTVOFF_EL2);

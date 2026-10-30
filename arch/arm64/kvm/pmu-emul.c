@@ -279,7 +279,7 @@ static u64 kvm_pmu_hyp_counter_mask(struct kvm_vcpu *vcpu)
 {
 	unsigned int hpmn, n;
 
-	if (!vcpu_has_nv(vcpu))
+	if (!vcpu_has_el2(vcpu))
 		return 0;
 
 	hpmn = SYS_FIELD_GET(MDCR_EL2, HPMN, __vcpu_sys_reg(vcpu, MDCR_EL2));
@@ -312,7 +312,7 @@ u64 kvm_pmu_accessible_counter_mask(struct kvm_vcpu *vcpu)
 {
 	u64 mask = kvm_pmu_implemented_counter_mask(vcpu);
 
-	if (!vcpu_has_nv(vcpu) || vcpu_is_el2(vcpu))
+	if (!vcpu_has_el2(vcpu) || vcpu_is_el2(vcpu))
 		return mask;
 
 	return mask & ~kvm_pmu_hyp_counter_mask(vcpu);
@@ -1330,7 +1330,7 @@ u64 kvm_vcpu_read_pmcr(struct kvm_vcpu *vcpu)
 	u64 pmcr = __vcpu_sys_reg(vcpu, PMCR_EL0);
 	u64 n = vcpu->kvm->arch.nr_pmu_counters;
 
-	if (vcpu_has_nv(vcpu) && !vcpu_is_el2(vcpu))
+	if (vcpu_has_el2(vcpu) && !vcpu_is_el2(vcpu))
 		n = FIELD_GET(MDCR_EL2_HPMN, __vcpu_sys_reg(vcpu, MDCR_EL2));
 
 	return u64_replace_bits(pmcr, n, ARMV8_PMU_PMCR_N);

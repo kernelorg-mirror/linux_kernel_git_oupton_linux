@@ -344,7 +344,7 @@ static inline bool vgic_v4_want_doorbell(struct kvm_vcpu *vcpu)
 	if (vcpu_get_flag(vcpu, IN_WFI))
 		return true;
 
-	if (likely(!vcpu_has_nv(vcpu)))
+	if (likely(!vcpu_has_el2(vcpu)))
 		return false;
 
 	/*

@@ -53,7 +53,7 @@ static u64 __compute_hcr(struct kvm_vcpu *vcpu)
 {
 	u64 guest_hcr, hcr = vcpu->arch.hcr_el2;
 
-	if (!vcpu_has_nv(vcpu))
+	if (!vcpu_has_el2(vcpu))
 		return hcr;
 
 	/*
@@ -494,7 +494,7 @@ static bool kvm_hyp_handle_zcr_el2(struct kvm_vcpu *vcpu, u64 *exit_code)
 {
 	u32 sysreg = esr_sys64_to_sysreg(kvm_vcpu_get_esr(vcpu));
 
-	if (!vcpu_has_nv(vcpu))
+	if (!vcpu_has_el2(vcpu))
 		return false;
 
 	if (sysreg != SYS_ZCR_EL2)
@@ -607,7 +607,7 @@ static bool fixup_guest_exit(struct kvm_vcpu *vcpu, u64 *exit_code)
 {
 	synchronize_vcpu_pstate(vcpu);
 
-	if (vcpu_has_nv(vcpu))
+	if (vcpu_has_el2(vcpu))
 		fixup_nv_guest_exit(vcpu);
 
 	return __fixup_guest_exit(vcpu, exit_code, hyp_exit_handlers);

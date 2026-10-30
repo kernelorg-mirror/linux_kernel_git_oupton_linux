@@ -724,7 +724,7 @@ int vgic_v5_init(struct kvm *kvm)
 		return -ENODEV;
 
 	kvm_for_each_vcpu(i, vcpu, kvm) {
-		if (vcpu_has_nv(vcpu)) {
+		if (vcpu_has_el2(vcpu)) {
 			kvm_err("Nested GICv5 VMs are currently unsupported\n");
 			return -EINVAL;
 		}

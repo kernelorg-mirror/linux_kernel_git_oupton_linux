@@ -1524,7 +1524,7 @@ static int set_pmcr(struct kvm_vcpu *vcpu, const struct sys_reg_desc *r,
 	 * with the existing KVM behavior.
 	 */
 	if (!kvm_vm_has_ran_once(kvm) &&
-	    !vcpu_has_nv(vcpu)	      &&
+	    !vcpu_has_el2(vcpu)	      &&
 	    !kvm_vcpu_has_pmuv3_strict(vcpu) &&
 	    new_n <= kvm_arm_pmu_get_max_counters(kvm))
 		kvm->arch.nr_pmu_counters = new_n;
@@ -1987,7 +1987,7 @@ static u64 __kvm_read_sanitised_id_reg(const struct kvm_vcpu *vcpu,
 		break;
 	}
 
-	if (vcpu_has_nv(vcpu))
+	if (vcpu_has_el2(vcpu))
 		val = limit_nv_id_reg(vcpu->kvm, id, val);
 
 	return val;
@@ -2236,7 +2236,7 @@ static bool ignore_feat_doublelock(struct kvm_vcpu *vcpu, u64 val)
 {
 	u8 host, user;
 
-	if (!vcpu_has_nv(vcpu))
+	if (!vcpu_has_el2(vcpu))
 		return false;
 
 	host = SYS_FIELD_GET(ID_AA64DFR0_EL1, DoubleLock,
@@ -2353,7 +2353,7 @@ static int set_id_aa64pfr0_el1(struct kvm_vcpu *vcpu,
 	/* Fail the guest's request to disable the AA64 ISA at EL{0,1,2} */
 	if (!FIELD_GET(ID_AA64PFR0_EL1_EL0, user_val) ||
 	    !FIELD_GET(ID_AA64PFR0_EL1_EL1, user_val) ||
-	    (vcpu_has_nv(vcpu) && !FIELD_GET(ID_AA64PFR0_EL1_EL2, user_val)))
+	    (vcpu_has_el2(vcpu) && !FIELD_GET(ID_AA64PFR0_EL1_EL2, user_val)))
 		return -EINVAL;
 
 	return set_id_reg(vcpu, rd, user_val);
@@ -2418,7 +2418,7 @@ static int set_id_aa64mmfr0_el1(struct kvm_vcpu *vcpu,
 {
 	u64 sanitized_val = kvm_read_sanitised_id_reg(vcpu, rd);
 
-	if (!vcpu_has_nv(vcpu))
+	if (!vcpu_has_el2(vcpu))
 		return set_id_reg(vcpu, rd, user_val);
 
 	if (!tgran2_val_allowed(TGRAN4_2, sanitized_val, user_val) ||
@@ -2703,7 +2703,7 @@ static unsigned int mte_visibility(const struct kvm_vcpu *vcpu,
 static unsigned int el2_visibility(const struct kvm_vcpu *vcpu,
 				   const struct sys_reg_desc *rd)
 {
-	if (vcpu_has_nv(vcpu))
+	if (vcpu_has_el2(vcpu))
 		return 0;
 
 	return REG_HIDDEN;
@@ -3081,7 +3081,7 @@ static unsigned int s1pie_el2_visibility(const struct kvm_vcpu *vcpu,
 static unsigned int cnthv_visibility(const struct kvm_vcpu *vcpu,
 				     const struct sys_reg_desc *rd)
 {
-	if (vcpu_has_nv(vcpu) &&
+	if (vcpu_has_el2(vcpu) &&
 	    !vcpu_has_feature(vcpu, KVM_ARM_VCPU_HAS_EL2_E2H0))
 		return 0;
 
@@ -5972,7 +5972,7 @@ int kvm_vcpu_finalize_sys_regs(struct kvm_vcpu *vcpu)
 	if (ret)
 		return ret;
 
-	if (vcpu_has_nv(vcpu)) {
+	if (vcpu_has_el2(vcpu)) {
 		ret = kvm_init_nv_sysregs(vcpu);
 		if (ret)
 			return ret;

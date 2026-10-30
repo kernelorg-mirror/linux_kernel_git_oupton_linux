@@ -235,7 +235,7 @@ void __vcpu_load_switch_sysregs(struct kvm_vcpu *vcpu)
 	 * vEL2 without a context switch, so make sure we complete
 	 * those walks before loading a new context.
 	 */
-	if (vcpu_has_nv(vcpu))
+	if (vcpu_has_el2(vcpu))
 		dsb(nsh);
 
 	/*
@@ -251,7 +251,7 @@ void __vcpu_load_switch_sysregs(struct kvm_vcpu *vcpu)
 	if (unlikely(is_hyp_ctxt(vcpu))) {
 		__sysreg_restore_vel2_state(vcpu);
 	} else {
-		if (vcpu_has_nv(vcpu)) {
+		if (vcpu_has_el2(vcpu)) {
 			/*
 			 * As we're restoring a nested guest, set the value
 			 * provided by the guest hypervisor.

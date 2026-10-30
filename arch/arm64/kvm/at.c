@@ -91,7 +91,7 @@ static enum trans_regime compute_translation_regime(struct kvm_vcpu *vcpu, u32 o
 static u64 effective_tcr2(struct kvm_vcpu *vcpu, enum trans_regime regime)
 {
 	if (regime == TR_EL10) {
-		if (vcpu_has_nv(vcpu) &&
+		if (vcpu_has_el2(vcpu) &&
 		    !(__vcpu_sys_reg(vcpu, HCRX_EL2) & HCRX_EL2_TCR2En))
 			return 0;
 
@@ -228,7 +228,7 @@ static int setup_s1_walk(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 	va55 = va & BIT(55);
 	upper_range = va55 && wi->regime != TR_EL2;
 
-	if (vcpu_has_nv(vcpu)) {
+	if (vcpu_has_el2(vcpu)) {
 		hcr = __vcpu_sys_reg(vcpu, HCR_EL2);
 		wi->s2 = wi->regime == TR_EL10 && (hcr & (HCR_EL2_VM | HCR_EL2_DC));
 	} else {
@@ -1031,7 +1031,7 @@ static u64 compute_par_s1(struct kvm_vcpu *vcpu, struct s1_walk_info *wi,
 		par  = SYS_PAR_EL1_NSE;
 		par |= wr->pa & SYS_PAR_EL1_PA;
 
-		if (wi->regime == TR_EL10 && vcpu_has_nv(vcpu) &&
+		if (wi->regime == TR_EL10 && vcpu_has_el2(vcpu) &&
 		    (__vcpu_sys_reg(vcpu, HCR_EL2) & HCR_EL2_DC)) {
 			par |= FIELD_PREP(SYS_PAR_EL1_ATTR,
 					  MEMATTR(WbRaWa, WbRaWa));
@@ -1516,7 +1516,7 @@ static u64 __kvm_at_s1e01_fast(struct kvm_vcpu *vcpu, u32 op, u64 vaddr)
 	 * We are also guaranteed to be in the correct context if
 	 * we're not in a nested VM.
 	 */
-	mmu_cs = (vcpu_has_nv(vcpu) &&
+	mmu_cs = (vcpu_has_el2(vcpu) &&
 		  !(vcpu_el2_e2h_is_set(vcpu) && vcpu_el2_tge_is_set(vcpu)));
 	if (!mmu_cs)
 		goto skip_mmu_switch;

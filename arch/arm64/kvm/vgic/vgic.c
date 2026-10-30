@@ -1098,7 +1098,7 @@ void kvm_vgic_sync_hwstate(struct kvm_vcpu *vcpu)
 			return;
 		}
 
-		if (vcpu_has_nv(vcpu))
+		if (vcpu_has_el2(vcpu))
 			vgic_v3_nested_update_mi(vcpu);
 	}
 

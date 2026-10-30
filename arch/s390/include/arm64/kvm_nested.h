@@ -3,7 +3,7 @@
 #ifndef ASM_KVM_NESTED_H
 #define ASM_KVM_NESTED_H
 
-static inline bool vcpu_has_nv(const struct kvm_vcpu *vcpu)
+static inline bool vcpu_has_el2(const struct kvm_vcpu *vcpu)
 {
 	return false;
 }

@@ -698,7 +698,7 @@ static void vcpu_prepare_mmu(struct kvm_vcpu *vcpu)
 	struct kvm_s2_mmu *mmu;
 	int *last_ran;
 
-	if (vcpu_has_nv(vcpu))
+	if (vcpu_has_el2(vcpu))
 		kvm_vcpu_load_hw_mmu(vcpu);
 
 	mmu = vcpu->arch.hw_mmu;
@@ -828,7 +828,7 @@ static void vhe_vcpu_put(struct kvm_vcpu *vcpu)
 	kvm_vgic_put(vcpu);
 	kvm_vcpu_pmu_restore_host(vcpu);
 
-	if (vcpu_has_nv(vcpu))
+	if (vcpu_has_el2(vcpu))
 		kvm_vcpu_put_hw_mmu(vcpu);
 
 	vcpu_put_mmu(vcpu);
@@ -1077,7 +1077,7 @@ int kvm_arch_vcpu_run_pid_change(struct kvm_vcpu *vcpu)
 	if (ret)
 		return ret;
 
-	if (vcpu_has_nv(vcpu)) {
+	if (vcpu_has_el2(vcpu)) {
 		ret = kvm_vcpu_allocate_vncr_tlb(vcpu);
 		if (ret)
 			return ret;
@@ -1325,7 +1325,7 @@ static bool vcpu_mode_is_bad_32bit(struct kvm_vcpu *vcpu)
 	if (likely(!vcpu_mode_is_32bit(vcpu)))
 		return false;
 
-	if (vcpu_has_nv(vcpu))
+	if (vcpu_has_el2(vcpu))
 		return true;
 
 	return !kvm_supports_32bit_el0();
@@ -1836,7 +1836,7 @@ static int kvm_setup_vcpu(struct kvm_vcpu *vcpu)
 		ret = kvm_arm_set_default_pmu(kvm);
 
 	/* Prepare for nested if required */
-	if (!ret && vcpu_has_nv(vcpu))
+	if (!ret && vcpu_has_el2(vcpu))
 		ret = kvm_vcpu_init_nested(vcpu);
 
 	return ret;

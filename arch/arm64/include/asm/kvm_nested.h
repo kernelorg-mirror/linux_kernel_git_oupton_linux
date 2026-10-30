@@ -7,7 +7,7 @@
 #include <asm/kvm_emulate.h>
 #include <asm/kvm_pgtable.h>
 
-static inline bool vcpu_has_nv(const struct kvm_vcpu *vcpu)
+static inline bool vcpu_has_el2(const struct kvm_vcpu *vcpu)
 {
 	return (!__is_defined(__KVM_NVHE_HYPERVISOR__) &&
 		cpus_have_final_cap(ARM64_HAS_NESTED_VIRT) &&

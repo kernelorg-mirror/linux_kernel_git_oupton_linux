@@ -262,7 +262,7 @@ static inline bool is_hyp_ctxt(const struct kvm_vcpu *vcpu)
 	bool e2h, tge;
 	u64 hcr;
 
-	if (!vcpu_has_nv(vcpu))
+	if (!vcpu_has_el2(vcpu))
 		return false;
 
 	hcr = __vcpu_sys_reg(vcpu, HCR_EL2);
@@ -288,7 +288,7 @@ static inline bool vcpu_is_host_el0(const struct kvm_vcpu *vcpu)
 
 static inline bool is_nested_ctxt(struct kvm_vcpu *vcpu)
 {
-	return vcpu_has_nv(vcpu) && !is_hyp_ctxt(vcpu);
+	return vcpu_has_el2(vcpu) && !is_hyp_ctxt(vcpu);
 }
 
 static inline bool vserror_state_is_nested(struct kvm_vcpu *vcpu)
@@ -376,7 +376,7 @@ static inline bool guest_hyp_wfx_traps_enabled(const struct kvm_vcpu *vcpu)
 	bool is_wfe = !!(esr & ESR_ELx_WFx_ISS_WFE);
 	u64 hcr_el2 = __vcpu_sys_reg(vcpu, HCR_EL2);
 
-	if (!vcpu_has_nv(vcpu) || vcpu_is_el2(vcpu))
+	if (!vcpu_has_el2(vcpu) || vcpu_is_el2(vcpu))
 		return false;
 
 	return ((is_wfe && (hcr_el2 & HCR_EL2_TWE)) ||
@@ -572,7 +572,7 @@ static inline void kvm_vcpu_set_be(struct kvm_vcpu *vcpu)
 		enum vcpu_sysreg r;
 		u64 sctlr;
 
-		r = vcpu_has_nv(vcpu) ? SCTLR_EL2 : SCTLR_EL1;
+		r = vcpu_has_el2(vcpu) ? SCTLR_EL2 : SCTLR_EL1;
 
 		sctlr = vcpu_read_sys_reg(vcpu, r);
 		sctlr |= SCTLR_ELx_EE;
@@ -702,7 +702,7 @@ static inline bool ____cptr_xen_trap_enabled(const struct kvm_vcpu *vcpu,
 }
 
 #define __guest_hyp_cptr_xen_trap_enabled(vcpu, xen)				\
-	(!vcpu_has_nv(vcpu) ? false :						\
+	(!vcpu_has_el2(vcpu) ? false :						\
 	 ____cptr_xen_trap_enabled(vcpu,					\
 				   SYS_FIELD_GET(CPACR_EL1, xen,		\
 						 vcpu_sanitised_cptr_el2(vcpu))))
@@ -754,7 +754,7 @@ static inline void vcpu_set_hcrx(struct kvm_vcpu *vcpu)
 		 * be hidden from the guest though.
 		 */
 		if (cpus_have_final_cap(ARM64_HAS_NV3) &&
-		    vcpu_has_nv(vcpu) && vcpu_el2_e2h_is_set(vcpu)) {
+		    vcpu_has_el2(vcpu) && vcpu_el2_e2h_is_set(vcpu)) {
 			vcpu->arch.hcrx_el2 |= HCRX_EL2_NVTGE;
 
 			/*
@@ -786,7 +786,7 @@ static inline void kvm_reset_vcpu_core(struct kvm_vcpu *vcpu)
 
 	if (vcpu_el1_is_32bit(vcpu))
 		pstate = VCPU_RESET_PSTATE_SVC;
-	else if (vcpu_has_nv(vcpu))
+	else if (vcpu_has_el2(vcpu))
 		pstate = VCPU_RESET_PSTATE_EL2;
 	else
 		pstate = VCPU_RESET_PSTATE_EL1;

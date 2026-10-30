@@ -101,7 +101,7 @@ static inline void __activate_cptr_traps_vhe(struct kvm_vcpu *vcpu)
 			val |= CPACR_EL1_ZEN;
 	}
 
-	if (!vcpu_has_nv(vcpu))
+	if (!vcpu_has_el2(vcpu))
 		goto write;
 
 	/*
@@ -752,7 +752,7 @@ static bool kvm_handle_cntxct(struct kvm_vcpu *vcpu)
 	switch (sysreg) {
 	case SYS_CNTPCT_EL0:
 	case SYS_CNTPCTSS_EL0:
-		if (vcpu_has_nv(vcpu)) {
+		if (vcpu_has_el2(vcpu)) {
 			/* Check for guest hypervisor trapping */
 			val = __vcpu_sys_reg(vcpu, CNTHCTL_EL2);
 			if (!vcpu_el2_e2h_is_set(vcpu))
@@ -766,7 +766,7 @@ static bool kvm_handle_cntxct(struct kvm_vcpu *vcpu)
 		break;
 	case SYS_CNTVCT_EL0:
 	case SYS_CNTVCTSS_EL0:
-		if (vcpu_has_nv(vcpu)) {
+		if (vcpu_has_el2(vcpu)) {
 			/* Check for guest hypervisor trapping */
 			val = __vcpu_sys_reg(vcpu, CNTHCTL_EL2);
 

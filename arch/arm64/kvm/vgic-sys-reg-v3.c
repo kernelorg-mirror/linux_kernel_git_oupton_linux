@@ -366,7 +366,7 @@ static int get_gic_ich_vtr(struct kvm_vcpu *vcpu, const struct sys_reg_desc *r,
 static unsigned int el2_visibility(const struct kvm_vcpu *vcpu,
 				   const struct sys_reg_desc *rd)
 {
-	return vcpu_has_nv(vcpu) ? 0 : REG_HIDDEN;
+	return vcpu_has_el2(vcpu) ? 0 : REG_HIDDEN;
 }
 
 #define __EL2_REG(r, acc, i)			\
