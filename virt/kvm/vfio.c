@@ -112,7 +112,7 @@ static void kvm_spapr_tce_release_vfio_group(struct kvm *kvm,
 /*
  * Groups/devices can use the same or different IOMMU domains. If the same
  * then adding a new group/device may change the coherency of groups/devices
- * we've previously been told about. We don't want to care about any of
+ * we've previously been told about. We don't want to care about any ofa
  * that so we retest each group/device and bail as soon as we find one that's
  * noncoherent.  This means we only ever [un]register_noncoherent_dma once
  * for the whole device.
@@ -134,9 +134,9 @@ static void kvm_vfio_update_coherency(struct kvm_device *dev)
 		kv->noncoherent = noncoherent;
 
 		if (kv->noncoherent)
-			kvm_arch_register_noncoherent_dma(dev->kvm);
+			kvm_register_noncoherent_dma(dev->kvm);
 		else
-			kvm_arch_unregister_noncoherent_dma(dev->kvm);
+			kvm_unregister_noncoherent_dma(dev->kvm);
 	}
 }
 

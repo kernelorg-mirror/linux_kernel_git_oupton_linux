@@ -7667,7 +7667,7 @@ static inline bool vmx_ignore_guest_pat(struct kvm *kvm)
 	 * In that case it is not possible to map all guest RAM as WB, so
 	 * always trust guest PAT.
 	 */
-	return !kvm_arch_has_noncoherent_dma(kvm) &&
+	return !kvm_has_noncoherent_dma(kvm) &&
 	       kvm_check_has_quirk(kvm, KVM_X86_QUIRK_IGNORE_GUEST_PAT);
 }
 

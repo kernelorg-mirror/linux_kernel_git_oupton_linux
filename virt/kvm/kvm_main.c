@@ -1148,6 +1148,10 @@ static struct kvm *kvm_create_vm(unsigned long type, const char *fdname)
 
 	BUILD_BUG_ON(KVM_MEM_SLOTS_NUM > SHRT_MAX);
 
+#ifdef __KVM_HAVE_ARCH_NONCOHERENT_DMA
+	atomic_set(&kvm->arch.noncoherent_dma_count, 0);
+#endif
+
 	/*
 	 * Force subsequent debugfs file creations to fail if the VM directory
 	 * is not created (by kvm_create_vm_debugfs()).

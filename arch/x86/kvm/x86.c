@@ -2538,7 +2538,7 @@ out:
 
 static bool need_emulate_wbinvd(struct kvm_vcpu *vcpu)
 {
-	return kvm_arch_has_noncoherent_dma(vcpu->kvm);
+	return kvm_has_noncoherent_dma(vcpu->kvm);
 }
 
 static DEFINE_PER_CPU(struct kvm_vcpu *, last_vcpu);
@@ -9961,8 +9961,6 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	if (ret)
 		goto out_uninit_mmu;
 
-	atomic_set(&kvm->arch.noncoherent_dma_count, 0);
-
 	raw_spin_lock_init(&kvm->arch.tsc_write_lock);
 	mutex_init(&kvm->arch.apic_map_lock);
 	seqcount_raw_spinlock_init(&kvm->arch.pvclock_sc, &kvm->arch.tsc_write_lock);
@@ -10706,23 +10704,15 @@ static void kvm_noncoherent_dma_assignment_start_or_stop(struct kvm *kvm)
 		kvm_zap_gfn_range(kvm, gpa_to_gfn(0), gpa_to_gfn(~0ULL));
 }
 
-void kvm_arch_register_noncoherent_dma(struct kvm *kvm)
+void kvm_arch_start_noncoherent_dma(struct kvm *kvm)
 {
-	if (atomic_inc_return(&kvm->arch.noncoherent_dma_count) == 1)
-		kvm_noncoherent_dma_assignment_start_or_stop(kvm);
+	kvm_noncoherent_dma_assignment_start_or_stop(kvm);
 }
 
-void kvm_arch_unregister_noncoherent_dma(struct kvm *kvm)
+void kvm_arch_stop_noncoherent_dma(struct kvm *kvm)
 {
-	if (!atomic_dec_return(&kvm->arch.noncoherent_dma_count))
-		kvm_noncoherent_dma_assignment_start_or_stop(kvm);
+	kvm_noncoherent_dma_assignment_start_or_stop(kvm);
 }
-
-bool kvm_arch_has_noncoherent_dma(struct kvm *kvm)
-{
-	return atomic_read(&kvm->arch.noncoherent_dma_count);
-}
-EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_arch_has_noncoherent_dma);
 
 bool kvm_arch_no_poll(struct kvm_vcpu *vcpu)
 {

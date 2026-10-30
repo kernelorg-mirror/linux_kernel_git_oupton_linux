@@ -870,6 +870,9 @@ struct kvm {
 	/* Protected by slots_lock (for writes) and RCU (for reads) */
 	struct xarray mem_attr_array;
 #endif
+#ifdef __KVM_HAVE_ARCH_NONCOHERENT_DMA
+	atomic_t noncoherent_dma_count;
+#endif
 	char stats_id[KVM_STATS_NAME_SIZE];
 };
 
@@ -1745,21 +1748,41 @@ int kvm_arch_flush_remote_tlbs_range(struct kvm *kvm, gfn_t gfn, u64 nr_pages);
 #endif
 
 #ifdef __KVM_HAVE_ARCH_NONCOHERENT_DMA
-void kvm_arch_register_noncoherent_dma(struct kvm *kvm);
-void kvm_arch_unregister_noncoherent_dma(struct kvm *kvm);
-bool kvm_arch_has_noncoherent_dma(struct kvm *kvm);
+void kvm_arch_start_noncoherent_dma(struct kvm *kvm);
+void kvm_arch_stop_noncoherent_dma(struct kvm *kvm);
+bool kvm_has_noncoherent_dma(struct kvm *kvm);
+
+static inline void kvm_register_noncoherent_dma(struct kvm *kvm)
+{
+	if (atomic_inc_return(&kvm->noncoherent_dma_count) == 1)
+		kvm_arch_start_noncoherent_dma(kvm);
+}
+
+static inline void kvm_unregister_noncoherent_dma(struct kvm *kvm)
+{
+	if (!atomic_dec_return(&kvm->noncoherent_dma_count))
+		kvm_arch_stop_noncoherent_dma(kvm);
+}
 #else
-static inline void kvm_arch_register_noncoherent_dma(struct kvm *kvm)
+static inline void kvm_arch_start_noncoherent_dma(struct kvm *kvm)
 {
 }
 
-static inline void kvm_arch_unregister_noncoherent_dma(struct kvm *kvm)
+static inline void kvm_arch_stop_noncoherent_dma(struct kvm *kvm)
 {
 }
 
-static inline bool kvm_arch_has_noncoherent_dma(struct kvm *kvm)
+static inline bool kvm_has_noncoherent_dma(struct kvm *kvm)
 {
 	return false;
+}
+
+static inline void kvm_register_noncoherent_dma(struct kvm *kvm)
+{
+}
+
+static inline void kvm_unregister_noncoherent_dma(struct kvm *kvm)
+{
 }
 #endif
 
