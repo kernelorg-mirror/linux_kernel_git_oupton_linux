@@ -444,4 +444,10 @@ u16 get_asid_by_regime(struct kvm_vcpu *vcpu, enum trans_regime regime);
 
 int __kvm_at_swap_desc(struct kvm *kvm, gpa_t ipa, u64 old, u64 new);
 
+static inline bool kvm_nested_requires_dc_va_emulation(struct kvm *kvm)
+{
+	return kvm_has_feat(kvm, ID_AA64MMFR1_EL1, HAFDBS, DBM) &&
+	       kvm_has_noncoherent_dma(kvm);
+}
+
 #endif /* __ARM64_KVM_NESTED_H */

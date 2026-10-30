@@ -108,6 +108,14 @@ static u64 __compute_hcr(struct kvm_vcpu *vcpu)
 		 */
 		if (!(guest_hcr & HCR_EL2_TWE))
 			guest_hcr &= ~(HCR_EL2_TWEDEn | HCR_EL2_TWEDEL);
+
+		/*
+		 * Oh noes, we're emulating bad architecture. Trap all CMOs to
+		 * the PoC (and beyond) so KVM gets the necessary syndrome
+		 * information.
+		 */
+		if (kvm_nested_requires_dc_va_emulation(vcpu->kvm))
+			hcr |= HCR_EL2_TPCP;
 	}
 
 	BUG_ON(host_data_test_flag(VCPU_IN_HYP_CONTEXT) &&
