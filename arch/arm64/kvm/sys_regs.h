@@ -252,9 +252,11 @@ int kvm_sys_reg_get_user(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg,
 int kvm_sys_reg_set_user(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg,
 			 const struct sys_reg_desc table[], unsigned int num);
 
-bool triage_sysreg_trap(struct kvm_vcpu *vcpu, int *sr_index);
+bool triage_sysreg_trap(struct kvm_vcpu *vcpu, const struct sys_reg_desc **r);
 
 int kvm_vcpu_finalize_sys_regs(struct kvm_vcpu *vcpu);
+
+const struct sys_reg_desc *kvm_sys_reg_idx_to_desc(u32 encoding, int sr_idx);
 
 #define AA32(_x)	.aarch32_map = AA32_##_x
 #define Op0(_x) 	.Op0 = _x

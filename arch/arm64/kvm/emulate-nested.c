@@ -2546,12 +2546,13 @@ static bool check_fgt_bit(struct kvm_vcpu *vcpu, enum vcpu_sysreg sr,
 	return !(kvm_get_sysreg_res0(kvm, sr) & BIT(tc.bit));
 }
 
-bool triage_sysreg_trap(struct kvm_vcpu *vcpu, int *sr_index)
+bool triage_sysreg_trap(struct kvm_vcpu *vcpu, const struct sys_reg_desc **r)
 {
 	enum vcpu_sysreg fgtreg;
 	union trap_config tc;
 	enum trap_behaviour b;
 	bool is_read;
+	int sr_index;
 	u32 sysreg;
 	u64 esr;
 
@@ -2559,6 +2560,7 @@ bool triage_sysreg_trap(struct kvm_vcpu *vcpu, int *sr_index)
 	sysreg = esr_sys64_to_sysreg(esr);
 	is_read = (esr & ESR_ELx_SYS64_ISS_DIR_MASK) == ESR_ELx_SYS64_ISS_DIR_READ;
 
+	*r = NULL;
 	tc = get_trap_config(sysreg);
 
 	/*
@@ -2568,6 +2570,11 @@ bool triage_sysreg_trap(struct kvm_vcpu *vcpu, int *sr_index)
 	 */
 	if (!tc.val)
 		goto local;
+
+	if (tc.sri) {
+		sr_index = tc.sri - 1;
+		*r = kvm_sys_reg_idx_to_desc(esr_sys64_to_sysreg(esr), sr_index);
+	}
 
 	/*
 	 * If a sysreg can be trapped using a FGT, first check whether we
@@ -2594,6 +2601,18 @@ bool triage_sysreg_trap(struct kvm_vcpu *vcpu, int *sr_index)
 	 */
 	if (is_hyp_ctxt(vcpu) && !vcpu_is_host_el0(vcpu))
 		goto local;
+
+	/*
+	 * Certain sysregs and system instructions could be UNDEF for the VM
+	 * but lack a corresponding FGU description and intersect with a valid
+	 * trap bit for the VM. Test the visibility the sysreg (if we have a
+	 * sys_reg_desc) before determining the effects of the guest
+	 * hypervisor's traps.
+	 */
+	if (*r && sysreg_hidden(vcpu, *r)) {
+		kvm_inject_undefined(vcpu);
+		return true;
+	}
 
 	switch ((enum fgt_group_id)tc.fgt) {
 	case __NO_FGT_GROUP__:
@@ -2666,7 +2685,7 @@ bool triage_sysreg_trap(struct kvm_vcpu *vcpu, int *sr_index)
 		goto inject;
 
 local:
-	if (!tc.sri) {
+	if (!(*r)) {
 		struct sys_reg_params params;
 
 		params = esr_sys64_to_params(esr);
@@ -2697,7 +2716,6 @@ local:
 		return true;
 	}
 
-	*sr_index = tc.sri - 1;
 	return false;
 
 inject:
