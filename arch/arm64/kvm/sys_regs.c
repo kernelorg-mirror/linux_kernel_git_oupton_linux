@@ -5407,6 +5407,15 @@ void kvm_reset_sys_regs(struct kvm_vcpu *vcpu)
 		kvm_make_request(KVM_REQ_RELOAD_PMU, vcpu);
 }
 
+const struct sys_reg_desc *kvm_sys_reg_idx_to_desc(u32 encoding, int sr_idx)
+{
+	/* System registers have Op0=={2,3}, as per DDI487 J.a C5.1.2 */
+	if (sys_reg_Op0(encoding) == 2 || sys_reg_Op0(encoding) == 3)
+		return &sys_reg_descs[sr_idx];
+	else
+		return &sys_insn_descs[sr_idx];
+}
+
 /**
  * kvm_handle_sys_reg -- handles a system instruction or mrs/msr instruction
  *			 trap on a guest execution
@@ -5418,21 +5427,14 @@ int kvm_handle_sys_reg(struct kvm_vcpu *vcpu)
 	struct sys_reg_params params;
 	unsigned long esr = kvm_vcpu_get_esr(vcpu);
 	int Rt = kvm_vcpu_sys_get_rt(vcpu);
-	int sr_idx;
 
 	trace_kvm_handle_sys_reg(esr);
 
-	if (triage_sysreg_trap(vcpu, &sr_idx))
+	if (triage_sysreg_trap(vcpu, &desc))
 		return 1;
 
 	params = esr_sys64_to_params(esr);
 	params.regval = vcpu_get_reg(vcpu, Rt);
-
-	/* System registers have Op0=={2,3}, as per DDI487 J.a C5.1.2 */
-	if (params.Op0 == 2 || params.Op0 == 3)
-		desc = &sys_reg_descs[sr_idx];
-	else
-		desc = &sys_insn_descs[sr_idx];
 
 	perform_access(vcpu, &params, desc);
 
