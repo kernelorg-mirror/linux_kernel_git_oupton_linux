@@ -11,6 +11,7 @@
 #include <asm/insn.h>
 #include <asm/virt.h>
 #include <asm/sysreg.h>
+#include <asm/asm-extable.h>
 
 #define ARM_EXIT_WITH_SERROR_BIT  31
 #define ARM_EXCEPTION_CODE(x)	  ((x) & ~(1U << ARM_EXIT_WITH_SERROR_BIT))
@@ -291,11 +292,15 @@ extern void __kvm_adjust_pc(struct kvm_vcpu *vcpu);
 extern bool __vgic_v3_get_gic_config(void);
 extern void __vgic_v3_init_lrs(void);
 
+#if defined(__KVM_NVHE_HYPERVISOR__) || defined(__KVM_VHE_HYPERVISOR__)
 #define __KVM_EXTABLE(from, to)						\
 	"	.pushsection	__kvm_ex_table, \"a\"\n"		\
 	"	.align		3\n"					\
 	"	.long		(" #from " - .), (" #to " - .)\n"	\
 	"	.popsection\n"
+#else
+#define __KVM_EXTABLE(from, to)	_ASM_EXTABLE_KACCESS(from, to)
+#endif
 
 
 #define __kvm_at(at_op, addr)						\
