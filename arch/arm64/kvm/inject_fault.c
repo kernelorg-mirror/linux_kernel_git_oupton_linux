@@ -102,12 +102,32 @@ static bool effective_sctlr2_nmea(struct kvm_vcpu *vcpu)
 	return __effective_sctlr2_bit(vcpu, SCTLR2_EL1_NMEA_SHIFT);
 }
 
-static void inject_abt64(struct kvm_vcpu *vcpu, bool is_iabt, unsigned long addr)
+static void __inject_abt64(struct kvm_vcpu *vcpu, bool iabt, u8 fsc, unsigned long addr)
 {
-	unsigned long cpsr = *vcpu_cpsr(vcpu);
-	bool is_aarch32 = vcpu_mode_is_32bit(vcpu);
-	u64 esr = 0, fsc;
-	int level;
+	u64 esr;
+	u8 ec;
+
+	if (vcpu_mode_priv(vcpu))
+		ec = iabt ? ESR_ELx_EC_IABT_CUR : ESR_ELx_EC_DABT_CUR;
+	else
+		ec = iabt ? ESR_ELx_EC_IABT_LOW : ESR_ELx_EC_DABT_LOW;
+
+	esr = FIELD_PREP(ESR_ELx_EC_MASK, ec) | FIELD_PREP(ESR_ELx_FSC, fsc) |
+	      ESR_ELx_IL;
+
+	vcpu_write_sys_reg(vcpu, addr, exception_far_elx(vcpu));
+	vcpu_write_sys_reg(vcpu, esr, exception_esr_elx(vcpu));
+}
+
+static void inject_abt64(struct kvm_vcpu *vcpu, bool iabt, u8 fsc, u64 addr)
+{
+	pend_sync_exception(vcpu);
+	__inject_abt64(vcpu, iabt, fsc, addr);
+}
+
+static void inject_sea64(struct kvm_vcpu *vcpu, bool iabt, u64 addr)
+{
+	u8 fsc;
 
 	/*
 	 * If injecting an abort from a failed S1PTW, rewalk the S1 PTs to
@@ -116,7 +136,7 @@ static void inject_abt64(struct kvm_vcpu *vcpu, bool is_iabt, unsigned long addr
 	 */
 	if (kvm_vcpu_abt_iss1tw(vcpu)) {
 		u64 hpfar = kvm_vcpu_get_fault_ipa(vcpu);
-		int ret;
+		int ret, level;
 
 		if (hpfar == INVALID_GPA)
 			return;
@@ -137,28 +157,7 @@ static void inject_abt64(struct kvm_vcpu *vcpu, bool is_iabt, unsigned long addr
 	else
 		pend_sync_exception(vcpu);
 
-	/*
-	 * Build an {i,d}abort, depending on the level.
-	 * Report an external synchronous abort.
-	 */
-	esr |= ESR_ELx_IL;
-
-	/*
-	 * Here, the guest runs in AArch64 mode when in EL1. If we get
-	 * an AArch32 fault, it means we managed to trap an EL0 fault.
-	 */
-	if (is_aarch32 || (cpsr & PSR_MODE_MASK) == PSR_MODE_EL0t)
-		esr |= (ESR_ELx_EC_IABT_LOW << ESR_ELx_EC_SHIFT);
-	else
-		esr |= (ESR_ELx_EC_IABT_CUR << ESR_ELx_EC_SHIFT);
-
-	if (!is_iabt)
-		esr |= ESR_ELx_EC_DABT_LOW << ESR_ELx_EC_SHIFT;
-
-	esr |= fsc;
-
-	vcpu_write_sys_reg(vcpu, addr, exception_far_elx(vcpu));
-	vcpu_write_sys_reg(vcpu, esr, exception_esr_elx(vcpu));
+	__inject_abt64(vcpu, iabt, fsc, addr);
 }
 
 void kvm_inject_sync(struct kvm_vcpu *vcpu, u64 esr)
@@ -174,31 +173,41 @@ static void inject_undef64(struct kvm_vcpu *vcpu)
 	kvm_inject_sync(vcpu, esr);
 }
 
-#define DFSR_FSC_EXTABT_LPAE	0x10
-#define DFSR_FSC_EXTABT_nLPAE	0x08
-#define DFSR_LPAE		BIT(9)
-#define TTBCR_EAE		BIT(31)
+#define DFSR_FS_4			BIT(10)
+#define DFSR_FS_3_0			GENMASK(3, 0)
+#define DFSR_FS_EXTABT_nLPAE		0x08
+#define DFSR_FS_EXCL_ATOMIC_nLPAE	0x15
+#define DFSR_FSC			GENMASK(5, 0)
+#define DFSR_FSC_EXTABT_LPAE		0x10
+#define DFSR_LPAE			BIT(9)
+#define TTBCR_EAE			BIT(31)
 
 static void inject_undef32(struct kvm_vcpu *vcpu)
 {
 	kvm_pend_exception(vcpu, EXCEPT_AA32_UND);
 }
 
+static bool vcpu_trans_32bit_non_lpae(struct kvm_vcpu *vcpu)
+{
+	return vcpu_el1_is_32bit(vcpu) && !(vcpu_read_sys_reg(vcpu, TCR_EL1) & TTBCR_EAE);
+}
+
 /*
  * Modelled after TakeDataAbortException() and TakePrefetchAbortException
  * pseudocode.
  */
-static void inject_abt32(struct kvm_vcpu *vcpu, bool is_pabt, u32 addr)
+static void inject_abt32(struct kvm_vcpu *vcpu, bool is_pabt, u8 status, u32 addr)
 {
 	u64 far;
 	u32 fsr;
 
-	/* Give the guest an IMPLEMENTATION DEFINED exception */
-	if (vcpu_read_sys_reg(vcpu, TCR_EL1) & TTBCR_EAE) {
-		fsr = DFSR_LPAE | DFSR_FSC_EXTABT_LPAE;
+	if (vcpu_trans_32bit_non_lpae(vcpu)) {
+		/* Ensure status actually fits in DFSR.FS */
+		KVM_BUG_ON(status > 0x1F, vcpu->kvm);
+		fsr = FIELD_PREP(DFSR_FS_4, FIELD_GET(BIT(4), status)) |
+		      FIELD_PREP(DFSR_FS_3_0, FIELD_GET(GENMASK(3, 0), status));
 	} else {
-		/* no need to shuffle FS[4] into DFSR[10] as it's 0 */
-		fsr = DFSR_FSC_EXTABT_nLPAE;
+		fsr = FIELD_PREP(DFSR_FSC, status) | DFSR_LPAE;
 	}
 
 	far = vcpu_read_sys_reg(vcpu, FAR_EL1);
@@ -218,12 +227,28 @@ static void inject_abt32(struct kvm_vcpu *vcpu, bool is_pabt, u32 addr)
 	vcpu_write_sys_reg(vcpu, far, FAR_EL1);
 }
 
+static void inject_sea32(struct kvm_vcpu *vcpu, bool is_pabt, u32 addr)
+{
+	if (vcpu_trans_32bit_non_lpae(vcpu))
+		inject_abt32(vcpu, is_pabt, DFSR_FS_EXTABT_nLPAE, addr);
+	else
+		inject_abt32(vcpu, is_pabt, DFSR_FSC_EXTABT_LPAE, addr);
+}
+
 static void __kvm_inject_sea(struct kvm_vcpu *vcpu, bool iabt, u64 addr)
 {
 	if (vcpu_el1_is_32bit(vcpu))
-		inject_abt32(vcpu, iabt, addr);
+		inject_sea32(vcpu, iabt, addr);
 	else
-		inject_abt64(vcpu, iabt, addr);
+		inject_sea64(vcpu, iabt, addr);
+}
+
+static void __kvm_inject_abort(struct kvm_vcpu *vcpu, bool iabt, u8 fsc, u64 addr)
+{
+	if (vcpu_el1_is_32bit(vcpu))
+		inject_abt32(vcpu, iabt, fsc, addr);
+	else
+		inject_abt64(vcpu, iabt, fsc, addr);
 }
 
 static bool kvm_sea_target_is_el2(struct kvm_vcpu *vcpu)
@@ -270,27 +295,24 @@ static int kvm_inject_nested_excl_atomic(struct kvm_vcpu *vcpu, u64 addr)
  */
 int kvm_inject_dabt_excl_atomic(struct kvm_vcpu *vcpu, u64 addr)
 {
-	u64 esr;
-
 	if (is_nested_ctxt(vcpu) && (vcpu_read_sys_reg(vcpu, HCR_EL2) & HCR_EL2_VM))
 		return kvm_inject_nested_excl_atomic(vcpu, addr);
 
-	__kvm_inject_sea(vcpu, false, addr);
-	esr = vcpu_read_sys_reg(vcpu, exception_esr_elx(vcpu));
-	esr &= ~ESR_ELx_FSC;
-	esr |= ESR_ELx_FSC_EXCL_ATOMIC;
-	vcpu_write_sys_reg(vcpu, esr, exception_esr_elx(vcpu));
+	if (vcpu_trans_32bit_non_lpae(vcpu))
+		__kvm_inject_abort(vcpu, false, DFSR_FS_EXCL_ATOMIC_nLPAE, addr);
+	else
+		__kvm_inject_abort(vcpu, false, ESR_ELx_FSC_EXCL_ATOMIC, addr);
+
 	return 1;
 }
 
 void kvm_inject_size_fault(struct kvm_vcpu *vcpu)
 {
-	unsigned long addr, esr;
+	bool iabt = kvm_vcpu_trap_is_iabt(vcpu);
+	unsigned long addr;
 
 	addr  = kvm_vcpu_get_fault_ipa(vcpu);
 	addr |= FAR_TO_FIPA_OFFSET(kvm_vcpu_get_hfar(vcpu));
-
-	__kvm_inject_sea(vcpu, kvm_vcpu_trap_is_iabt(vcpu), addr);
 
 	/*
 	 * If AArch64 or LPAE, set FSC to 0 to indicate an Address
@@ -299,13 +321,10 @@ void kvm_inject_size_fault(struct kvm_vcpu *vcpu)
 	 * Non-LPAE guests will only get the external abort, as there
 	 * is no way to describe the ASF.
 	 */
-	if (vcpu_el1_is_32bit(vcpu) &&
-	    !(vcpu_read_sys_reg(vcpu, TCR_EL1) & TTBCR_EAE))
-		return;
-
-	esr = vcpu_read_sys_reg(vcpu, exception_esr_elx(vcpu));
-	esr &= ~GENMASK_ULL(5, 0);
-	vcpu_write_sys_reg(vcpu, esr, exception_esr_elx(vcpu));
+	if (vcpu_trans_32bit_non_lpae(vcpu))
+		__kvm_inject_sea(vcpu, iabt, addr);
+	else
+		__kvm_inject_abort(vcpu, iabt, ESR_ELx_FSC_ADDRSZ, addr);
 }
 
 /**
