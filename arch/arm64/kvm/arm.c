@@ -1793,12 +1793,14 @@ static int kvm_vcpu_init_check_features(struct kvm_vcpu *vcpu,
 	    !test_bit(KVM_ARM_VCPU_PMU_V3, &features))
 		return -EINVAL;
 
+	/* MTE is incompatible with AArch32 and nested virt */
+	if (kvm_has_mte(vcpu->kvm) &&
+	    (test_bit(KVM_ARM_VCPU_EL1_32BIT, &features) ||
+	     test_bit(KVM_ARM_VCPU_HAS_EL2, &features)))
+		return -EINVAL;
+
 	if (!test_bit(KVM_ARM_VCPU_EL1_32BIT, &features))
 		return 0;
-
-	/* MTE is incompatible with AArch32 */
-	if (kvm_has_mte(vcpu->kvm))
-		return -EINVAL;
 
 	/* NV is incompatible with AArch32 */
 	if (test_bit(KVM_ARM_VCPU_HAS_EL2, &features))
