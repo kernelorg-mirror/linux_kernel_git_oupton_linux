@@ -1020,10 +1020,10 @@ static u64 reset_mpidr(struct kvm_vcpu *vcpu, const struct sys_reg_desc *r)
 	return mpidr;
 }
 
-static unsigned int hidden_visibility(const struct kvm_vcpu *vcpu,
-				      const struct sys_reg_desc *r)
+static unsigned int hidden_user_visibility(const struct kvm_vcpu *vcpu,
+					   const struct sys_reg_desc *r)
 {
-	return REG_HIDDEN;
+	return REG_USER_HIDDEN;
 }
 
 static unsigned int pmu_visibility(const struct kvm_vcpu *vcpu,
@@ -2757,7 +2757,7 @@ static bool bad_redir_trap(struct kvm_vcpu *vcpu,
 #define EL2_REG_VNCR_FILT(name, vis)			\
 	EL2_REG_FILTERED(name, bad_vncr_trap, reset_val, 0, vis)
 #define EL2_REG_VNCR_GICv3(name)			\
-	EL2_REG_VNCR_FILT(name, hidden_visibility)
+	EL2_REG_VNCR_FILT(name, hidden_user_visibility)
 #define EL2_REG_REDIR(name, rst, v)	EL2_REG(name, bad_redir_trap, rst, v)
 
 #define TIMER_REG(name, vis)					   \
