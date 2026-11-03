@@ -465,7 +465,7 @@ int vgic_v3_has_cpu_sysregs_attr(struct kvm_vcpu *vcpu, struct kvm_device_attr *
 	r = get_reg_by_id(attr_to_id(attr->attr), gic_v3_icc_reg_descs,
 			  ARRAY_SIZE(gic_v3_icc_reg_descs));
 
-	if (r && !sysreg_hidden(vcpu, r))
+	if (r && !sysreg_user_hidden(vcpu, r))
 		return 0;
 
 	return -ENXIO;

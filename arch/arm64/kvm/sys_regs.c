@@ -4866,7 +4866,7 @@ static void perform_access(struct kvm_vcpu *vcpu,
 	trace_kvm_sys_access(*vcpu_pc(vcpu), params, r);
 
 	/* Check for regs disabled by runtime config */
-	if (sysreg_hidden(vcpu, r)) {
+	if (sysreg_guest_hidden(vcpu, r)) {
 		kvm_inject_undefined(vcpu);
 		return;
 	}
@@ -5490,7 +5490,7 @@ id_to_sys_reg_desc(struct kvm_vcpu *vcpu, u64 id,
 	r = get_reg_by_id(id, table, num);
 
 	/* Not saved in the sys_reg array and not otherwise accessible? */
-	if (r && (!(r->reg || r->get_user) || sysreg_hidden(vcpu, r)))
+	if (r && (!(r->reg || r->get_user) || sysreg_user_hidden(vcpu, r)))
 		r = NULL;
 
 	return r;
@@ -5571,7 +5571,7 @@ int kvm_sys_reg_get_user(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg,
 	int ret;
 
 	r = id_to_sys_reg_desc(vcpu, id, table, num);
-	if (!r || sysreg_hidden(vcpu, r))
+	if (!r || sysreg_user_hidden(vcpu, r))
 		return -ENOENT;
 
 	if (r->get_user) {
@@ -5611,7 +5611,7 @@ int kvm_sys_reg_set_user(struct kvm_vcpu *vcpu, const struct kvm_one_reg *reg,
 		return -EFAULT;
 
 	r = id_to_sys_reg_desc(vcpu, id, table, num);
-	if (!r || sysreg_hidden(vcpu, r))
+	if (!r || sysreg_user_hidden(vcpu, r))
 		return -ENOENT;
 
 	if (sysreg_user_write_ignore(vcpu, r))
@@ -5705,7 +5705,7 @@ static int walk_one_sys_reg(const struct kvm_vcpu *vcpu,
 	if (!(rd->reg || rd->get_user))
 		return 0;
 
-	if (sysreg_hidden(vcpu, rd))
+	if (sysreg_user_hidden(vcpu, rd))
 		return 0;
 
 	if (!copy_reg_to_user(rd, uind))
