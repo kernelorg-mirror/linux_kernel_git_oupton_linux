@@ -10,6 +10,7 @@
 #define ARM_EXCEPTION_EL1_SERROR	1
 #define ARM_EXCEPTION_TRAP		2
 #define ARM_EXCEPTION_IL		3
+#define ARM_EXCEPTION_FIQ		4
 /* The hyp-stub will return this for any kvm_call_hyp() call */
 #define ARM_EXCEPTION_HYP_GONE		HVC_STUB_ERR
 
@@ -18,6 +19,7 @@
 	{ARM_EXCEPTION_EL1_SERROR,	"SERROR"	},	\
 	{ARM_EXCEPTION_TRAP,		"TRAP"		},	\
 	{ARM_EXCEPTION_IL,		"ILLEGAL"	},	\
+	{ARM_EXCEPTION_FIQ,		"FIQ"		},	\
 	{ARM_EXCEPTION_HYP_GONE,	"HYP_GONE"	}
 
 /* Per asm/esr.h */
