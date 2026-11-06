@@ -21,6 +21,7 @@
 #include <linux/irqbypass.h>
 #include <linux/sched/stat.h>
 #include <linux/psci.h>
+#include <trace/events/ipi.h>
 #include <trace/events/kvm.h>
 
 #define CREATE_TRACE_POINTS
@@ -28,6 +29,7 @@
 #include "hyp_trace.h"
 
 #include <linux/uaccess.h>
+#include <asm/apple_m1_pmu.h>
 #include <asm/ptrace.h>
 #include <asm/mman.h>
 #include <asm/tlbflush.h>
@@ -1536,6 +1538,26 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 		 * advertise we're outside of the guest.
 		 */
 		smp_store_release(&vcpu->mode, OUTSIDE_GUEST_MODE);
+
+		/*
+		 * The line level of the physical PMU on these parts appears to
+		 * and the counter overflow state with the event filter bit for
+		 * the current EL. So for PMU events that exclude the host such
+		 * as those that back a vPMU, the vCPU gets stuck in an FIQ storm
+		 * as the host never actually takes an FIQ when unmasked below.
+		 *
+		 * The implementations in question lack an actual interrupt
+		 * controller on the FIQ line, which we can happily abuse to
+		 * force the irqchip to recognize the overflowed PMU.
+		 */
+		if (cpus_have_final_cap(ARM64_WORKAROUND_PMUV3_IMPDEF_TRAPS) &&
+		    ARM_EXCEPTION_CODE(ret) == ARM_EXCEPTION_FIQ) {
+			u64 pmcr0 = read_sysreg_s(SYS_IMP_APL_PMCR0_EL1);
+			u8 imode = FIELD_GET(PMCR0_IMODE, pmcr0);
+
+			if ((imode == PMCR0_IMODE_FIQ) && (pmcr0 & PMCR0_IACT))
+				smp_send_reschedule(smp_processor_id());
+		}
 
 		/*
 		 * We must ensure that any pending interrupts are taken before
