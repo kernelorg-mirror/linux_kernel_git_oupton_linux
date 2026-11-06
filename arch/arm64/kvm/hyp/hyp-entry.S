@@ -80,9 +80,13 @@ el1_trap:
 	b	__guest_exit
 
 el1_irq:
-el1_fiq:
 	get_vcpu_ptr	x1, x0
 	mov	x0, #ARM_EXCEPTION_IRQ
+	b	__guest_exit
+
+el1_fiq:
+	get_vcpu_ptr	x1, x0
+	mov	x0, #ARM_EXCEPTION_FIQ
 	b	__guest_exit
 
 el1_error:

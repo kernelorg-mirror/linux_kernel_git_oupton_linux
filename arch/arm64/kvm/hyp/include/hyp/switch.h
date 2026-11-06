@@ -923,11 +923,11 @@ static inline void synchronize_vcpu_pstate(struct kvm_vcpu *vcpu)
 static inline bool __fixup_guest_exit(struct kvm_vcpu *vcpu, u64 *exit_code,
 				      const exit_handler_fn *handlers)
 {
-	if (ARM_EXCEPTION_CODE(*exit_code) != ARM_EXCEPTION_IRQ)
+	if (!ARM_EXCEPTION_IS_INTERRUPT(*exit_code))
 		vcpu->arch.fault.esr_el2 = read_sysreg_el2(SYS_ESR);
 
 	if (ARM_SERROR_PENDING(*exit_code) &&
-	    ARM_EXCEPTION_CODE(*exit_code) != ARM_EXCEPTION_IRQ) {
+	    !ARM_EXCEPTION_IS_INTERRUPT(*exit_code)) {
 		u8 esr_ec = kvm_vcpu_trap_get_class(vcpu);
 
 		/*

@@ -732,6 +732,7 @@ static void flush_hyp_vcpu(struct pkvm_hyp_vcpu *hyp_vcpu)
 
 	switch (ARM_EXCEPTION_CODE(hyp_vcpu->exit_code)) {
 	case ARM_EXCEPTION_IRQ:
+	case ARM_EXCEPTION_FIQ:
 	case ARM_EXCEPTION_EL1_SERROR:
 	case ARM_EXCEPTION_IL:
 		break;
@@ -787,6 +788,7 @@ static void sync_hyp_vcpu(struct pkvm_hyp_vcpu *hyp_vcpu, u32 exit_reason)
 
 	switch (ARM_EXCEPTION_CODE(exit_reason)) {
 	case ARM_EXCEPTION_IRQ:
+	case ARM_EXCEPTION_FIQ:
 		break;
 	case ARM_EXCEPTION_TRAP:
 		/* SError pending: not handled at EL2, the guest replays it. */

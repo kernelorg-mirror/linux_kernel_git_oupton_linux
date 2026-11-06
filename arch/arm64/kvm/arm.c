@@ -1547,7 +1547,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 		 * context synchronization event) is necessary to ensure that
 		 * pending interrupts are taken.
 		 */
-		if (ARM_EXCEPTION_CODE(ret) == ARM_EXCEPTION_IRQ) {
+		if (ARM_EXCEPTION_IS_INTERRUPT(ret)) {
 			local_irq_enable();
 			isb();
 			local_irq_disable();

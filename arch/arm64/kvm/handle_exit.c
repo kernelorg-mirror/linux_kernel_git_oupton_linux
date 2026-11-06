@@ -459,6 +459,7 @@ int handle_exit(struct kvm_vcpu *vcpu, int exception_index)
 
 	switch (exception_index) {
 	case ARM_EXCEPTION_IRQ:
+	case ARM_EXCEPTION_FIQ:
 		return 1;
 	case ARM_EXCEPTION_EL1_SERROR:
 		return 1;
